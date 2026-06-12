@@ -24,6 +24,7 @@ class LocalStorageService extends IStorageService {
     this.uploadPath = uploadPath;
   }
 
+
   /**
    * Lưu thông tin file đã upload (Multer đã lưu file trên disk trước đó)
    * @param {object} file - Express Multer file object
@@ -82,7 +83,66 @@ class LocalStorageService extends IStorageService {
   }
 }
 
+
+
+class CloudinaryStorageService extends IStorageService {
+  constructor() {
+    super();
+
+    const { v2: cloudinary } = require('cloudinary');
+
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+      secure: true,
+    });
+
+    this.cloudinary = cloudinary;
+    this.folder = process.env.CLOUDINARY_FOLDER || 'ai-study-hub';
+  }
+
+  async upload(file) {
+    if (!file) {
+      throw new Error('Không tìm thấy tệp tin tải lên');
+    }
+
+    const result = await this.cloudinary.uploader.upload(file.path, {
+      folder: this.folder,
+      resource_type: 'auto',
+      use_filename: true,
+      unique_filename: true,
+    });
+
+    if (fs.existsSync(file.path)) {
+      fs.unlinkSync(file.path);
+    }
+
+    return {
+      fileUrl: result.secure_url,
+      fileName: file.originalname,
+      fileSize: file.size,
+      mimeType: file.mimetype,
+    };
+  }
+
+  async delete(fileUrl) {
+    return true;
+  }
+
+  getDownloadUrl(fileUrl) {
+    return fileUrl;
+  }
+
+  getPreviewUrl(fileUrl) {
+    return fileUrl;
+  }
+}
+
+
+
 module.exports = {
   IStorageService,
   LocalStorageService,
+  CloudinaryStorageService,
 };

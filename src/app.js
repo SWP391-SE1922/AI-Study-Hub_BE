@@ -23,7 +23,7 @@ app.use(helmet({
   crossOriginResourcePolicy: false, // Cho phép truy cập file tĩnh từ nguồn khác
 }));
 app.use(cors({
-  origin: '*',
+  origin: "http://localhost:5173",
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true

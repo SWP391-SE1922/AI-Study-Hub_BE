@@ -18,7 +18,6 @@ const createDocument = asyncHandler(async (req, res) => {
  * Lấy danh sách tài liệu (Guest/User/Admin)
  */
 const getAllDocuments = asyncHandler(async (req, res) => {
-  // Lấy user đăng nhập nếu có (từ middleware auth optional)
   const currentUser = req.user || null;
   const result = await documentService.getAllDocuments(currentUser, req.query);
   return sendSuccess(res, 'Lấy danh sách tài liệu thành công', result.documents, result.pagination, 200);
@@ -35,14 +34,17 @@ const getDocumentById = asyncHandler(async (req, res) => {
 
 /**
  * Cập nhật tài liệu (Chỉ owner hoặc Admin)
+ * Nếu upload file mới thì tạo version mới
  */
 const updateDocument = asyncHandler(async (req, res) => {
   const updatedDocument = await documentService.updateDocument(
     req.user.id,
     req.user.role,
     req.params.id,
-    req.body
+    req.body,
+    req.file || null
   );
+
   return sendSuccess(res, 'Cập nhật tài liệu thành công', { document: updatedDocument }, null, 200);
 });
 
@@ -51,17 +53,30 @@ const updateDocument = asyncHandler(async (req, res) => {
  */
 const deleteDocument = asyncHandler(async (req, res) => {
   await documentService.deleteDocument(req.user.id, req.user.role, req.params.id);
-  return res.status(204).end(); // Trả về 204 No Content không có body
+  return res.status(204).end();
 });
 
 /**
- * Tải file tài liệu về (Stream file về client)
+ * Tải file tài liệu về
  */
 const downloadDocument = asyncHandler(async (req, res) => {
   const currentUser = req.user || null;
   const result = await documentService.downloadDocument(currentUser, req.params.id);
 
-  // Tiến hành gửi file stream cho client tải về
+  if (result.downloadUrl.startsWith('http')) {
+    return sendSuccess(
+      res,
+      'Lấy link tải tài liệu thành công',
+      {
+        downloadUrl: result.downloadUrl,
+        fileName: result.fileName,
+        mimeType: result.mimeType,
+      },
+      null,
+      200
+    );
+  }
+
   return res.download(result.downloadUrl, result.fileName, (err) => {
     if (err) {
       console.error('Lỗi khi stream download file:', err);
@@ -80,6 +95,19 @@ const getMyDocuments = asyncHandler(async (req, res) => {
   return sendSuccess(res, 'Lấy danh sách tài liệu cá nhân thành công', result.documents, result.pagination, 200);
 });
 
+/**
+ * Lấy lịch sử phiên bản của tài liệu
+ */
+const getDocumentVersions = asyncHandler(async (req, res) => {
+  const versions = await documentService.getDocumentVersions(
+    req.user.id,
+    req.user.role,
+    req.params.id
+  );
+
+  return sendSuccess(res, 'Lấy danh sách phiên bản thành công', { versions }, null, 200);
+});
+
 module.exports = {
   createDocument,
   getAllDocuments,
@@ -88,4 +116,5 @@ module.exports = {
   deleteDocument,
   downloadDocument,
   getMyDocuments,
+  getDocumentVersions,
 };
