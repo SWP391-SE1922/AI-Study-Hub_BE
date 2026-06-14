@@ -12,9 +12,11 @@ const UPLOAD_PATH = path.join(__dirname, '../../', UPLOAD_DIR);
  */
 const getStorageService = () => {
   // Tránh vòng lặp phụ thuộc (circular dependency) bằng cách require động tại runtime
-  const { LocalStorageService } = require('../services/storageService');
-  
+  const { LocalStorageService, CloudinaryStorageService, } = require('../services/storageService');
+
   switch (STORAGE_TYPE.toLowerCase()) {
+    case 'cloudinary':
+      return new CloudinaryStorageService();
     case 'local':
     default:
       return new LocalStorageService(UPLOAD_PATH);
