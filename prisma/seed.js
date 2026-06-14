@@ -8,6 +8,7 @@ async function main() {
 
   // Xóa sạch dữ liệu cũ theo thứ tự phụ thuộc
   await prisma.document.deleteMany();
+  await prisma.folder.deleteMany();
   await prisma.category.deleteMany();
   await prisma.user.deleteMany();
 
@@ -22,6 +23,8 @@ async function main() {
       fullName: 'Admin System',
       role: 'ADMIN',
       isVerified: true,
+      storageLimit: 10 * 1024 * 1024 * 1024, // 10GB
+      usedStorage: 0
     },
   });
 
@@ -32,6 +35,8 @@ async function main() {
       fullName: 'Nguyễn Văn A',
       role: 'USER',
       isVerified: true,
+      storageLimit: 2 * 1024 * 1024 * 1024, // 2GB
+      usedStorage: 0
     },
   });
 

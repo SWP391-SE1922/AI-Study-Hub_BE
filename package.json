@@ -2,10 +2,10 @@
   "name": "backend",
   "version": "1.0.0",
   "description": "Student Document Management System Backend",
-  "main": "server.js",
+  "main": "src/server.js",
   "scripts": {
-    "dev": "nodemon server.js",
-    "start": "node server.js",
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
     "setup": "npx prisma generate && npx prisma migrate deploy && npm run seed",
     "seed": "node prisma/seed.js",
     "migrate": "npx prisma migrate dev",
@@ -25,9 +25,11 @@
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
+    "nodemailer": "^8.0.11",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.0",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "vnpay": "^2.5.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.14",
