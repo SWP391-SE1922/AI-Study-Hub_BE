@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # AI Management System - Backend
 
 Dự án này là hệ thống Backend được xây dựng bằng **Node.js**, **ExpressJS**, **Prisma ORM** và sử dụng cơ sở dữ liệu **SQL Server**. Dự án đã được cấu hình tự động hóa toàn bộ quá trình khởi tạo cơ sở dữ liệu, chạy migration và tạo dữ liệu mẫu (seed data).
@@ -88,16 +87,3 @@ Sau khi chạy lệnh `npm run setup`, các tài khoản mẫu sau sẽ được
    * **Email:** `student@gmail.com`
    * **Mật khẩu:** `123456`
    * **Role:** `student`
-=======
-
-  # AI Study Hub Design
-
-  This is a code bundle for AI Study Hub Design. The original project is available at https://www.figma.com/design/OBUigda5Bb8u2riqV0XyvA/AI-Study-Hub-Design.
-
-  ## Running the code
-
-  Run `npm i` to install the dependencies.
-
-  Run `npm run dev` to start the development server.
-  
->>>>>>> origin/main

@@ -13,6 +13,7 @@ const createDocumentSchema = Joi.object({
   categoryId: Joi.string().uuid().allow('', null).optional().messages({
     'string.uuid': 'Mã danh mục không đúng định dạng UUID',
   }),
+  folderId: Joi.string().allow('', null, 'root').optional(),
   isPublic: Joi.boolean().default(true).optional(),
 });
 
@@ -26,6 +27,7 @@ const updateDocumentSchema = Joi.object({
   categoryId: Joi.string().uuid().allow('', null).optional().messages({
     'string.uuid': 'Mã danh mục không đúng định dạng UUID',
   }),
+  folderId: Joi.string().allow('', null, 'root').optional(),
   isPublic: Joi.boolean().optional(),
 });
 

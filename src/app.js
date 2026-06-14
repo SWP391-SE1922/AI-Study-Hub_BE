@@ -23,9 +23,9 @@ app.use(helmet({
   crossOriginResourcePolicy: false, // Cho phép truy cập file tĩnh từ nguồn khác
 }));
 app.use(cors({
-  origin: "http://localhost:5173",
+  origin: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
   credentials: true
 }));
 app.use(morgan('dev'));
@@ -38,7 +38,16 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/uploads', express.static(uploadDir));
 
 // 4. Swagger API Documentation
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+const swaggerUiOptions = {
+  swaggerOptions: {
+    requestInterceptor: (req) => {
+      // Tự động thêm header này để bỏ qua trang cảnh báo của Ngrok (Ngrok Free Tier)
+      req.headers['ngrok-skip-browser-warning'] = 'true';
+      return req;
+    }
+  }
+};
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, swaggerUiOptions));
 
 // 5. Mount Routes
 app.use('/api', routes);

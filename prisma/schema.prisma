@@ -15,13 +15,17 @@ model User {
   avatarUrl           String?
   role                String    @default("USER") // GUEST, USER, ADMIN
   isVerified          Boolean   @default(false)
+  verifyEmailToken    String?
+  verifyEmailExpire   DateTime?
   resetPasswordToken  String?
   resetPasswordExpire DateTime?
+  usedStorage         Float     @default(0) // Dung lượng đã dùng (Bytes)
+  storageLimit        Float     // Giới hạn dung lượng (Bytes)
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
-
-  documents Document[]
-  subjects  Subject[]
+  documents           Document[]
+  folders             Folder[]
+  subjects            Subject[]
 
   @@map("users")
 }
@@ -36,6 +40,22 @@ model Category {
   documents Document[]
 
   @@map("categories")
+}
+
+model Folder {
+  id        String     @id @default(uuid())
+  name      String
+  userId    String
+  parentId  String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent    Folder?    @relation("FolderToFolder", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children  Folder[]   @relation("FolderToFolder")
+  documents Document[]
+
+  @@unique([name, parentId, userId]) // Không cho phép trùng tên folder trong cùng 1 parent của cùng 1 user
+  @@map("folders")
 }
 
 model Subject {
@@ -67,19 +87,18 @@ model Document {
   mimeType      String
   uploadedBy    String
   categoryId    String?
-  isPublic      Boolean  @default(true)
-  downloadCount Int      @default(0)
+  folderId      String?
+  isPublic      Boolean   @default(true)
+  downloadCount Int       @default(0)
+  currentVersion Int      @default(1)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  currentVersion Int @default(1)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  user       User      @relation(fields: [uploadedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  category   Category? @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  subjectRef Subject?  @relation(fields: [subjectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  versions DocumentVersion[]
+  user          User      @relation(fields: [uploadedBy], references: [id], onDelete: Cascade)
+  category      Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  folder        Folder?   @relation(fields: [folderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  subjectRef    Subject?  @relation(fields: [subjectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  versions      DocumentVersion[]
 
   @@map("documents")
 }

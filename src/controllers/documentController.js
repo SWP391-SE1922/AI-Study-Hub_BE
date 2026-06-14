@@ -5,13 +5,21 @@ const { sendSuccess, sendError } = require('../utils/response');
 /**
  * Tải lên tài liệu mới
  */
-const createDocument = asyncHandler(async (req, res) => {
+const createDocument = asyncHandler(async (req, res, next) => {
   if (!req.file) {
     return sendError(res, 'Vui lòng tải lên tệp tin tài liệu', 400);
   }
 
-  const document = await documentService.createDocument(req.user.id, req.file, req.body);
-  return sendSuccess(res, 'Tải lên tài liệu thành công', { document }, null, 201);
+  try {
+    const document = await documentService.createDocument(req.user.id, req.file, req.body);
+    return sendSuccess(res, 'Tải lên tài liệu thành công', { document }, null, 201);
+  } catch (error) {
+    const fs = require('fs');
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    throw error; // Chuyển cho errorMiddleware xử lý tiếp
+  }
 });
 
 /**
