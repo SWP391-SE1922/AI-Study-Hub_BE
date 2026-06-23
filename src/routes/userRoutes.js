@@ -9,7 +9,7 @@ const router = express.Router();
 
 // Schema validate thay đổi role của admin
 const changeRoleSchema = Joi.object({
-  role: Joi.string().valid('GUEST', 'USER', 'ADMIN').required().messages({
+  role: Joi.string().valid('GUEST', 'USER', 'TEACHER', 'ADMIN').required().messages({
     'any.only': 'Quyền chỉ được phép là GUEST, USER hoặc ADMIN',
     'any.required': 'Quyền mới (role) là bắt buộc',
   }),

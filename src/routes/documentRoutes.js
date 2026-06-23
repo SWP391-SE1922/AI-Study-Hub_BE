@@ -102,6 +102,9 @@ router.get('/', authMiddlewareOptional, validate(queryDocumentSchema, 'query'), 
  *               categoryId:
  *                 type: string
  *                 description: Mã UUID danh mục tài liệu
+ *               folderId:
+ *                 type: string
+ *                 description: ID của thư mục ảo chứa file (để trống hoặc 'root' nếu ở ngoài cùng)
  *               isPublic:
  *                 type: boolean
  *                 default: true
@@ -258,5 +261,51 @@ router.delete('/:id', authMiddleware, documentController.deleteDocument);
  *         description: Không có quyền tải tài liệu riêng tư
  */
 router.get('/:id/download', authMiddlewareOptional, documentController.downloadDocument);
+
+/**
+ * @swagger
+ * /api/documents/{id}/status:
+ *   get:
+ *     summary: Lấy trạng thái xử lý của tài liệu
+ *     tags: [Documents]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Lấy trạng thái thành công
+ *       404:
+ *         description: Không tìm thấy tài liệu
+ */
+router.get('/:id/status', authMiddlewareOptional, documentController.getDocumentStatus);
+
+/**
+ * @swagger
+ * /api/documents/{id}/preview:
+ *   get:
+ *     summary: Xem trước tài liệu (inline)
+ *     tags: [Documents]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Trả về tệp tin tài liệu xem trước
+ *       400:
+ *         description: Không hỗ trợ preview định dạng này
+ *       404:
+ *         description: Không tìm thấy tài liệu
+ */
+router.get('/:id/preview', authMiddlewareOptional, documentController.previewDocument);
 
 module.exports = router;
