@@ -17,8 +17,7 @@ router.get('/', authMiddleware, async (req, res) => {
       data: {
         totalDocuments,
         totalCourses: 6,
-        totalQuizzes: 12,
-        totalAIChats: 0
+        totalQuizzes: 12
       }
     });
   } catch (error) {

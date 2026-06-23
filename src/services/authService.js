@@ -5,10 +5,15 @@ const emailService = require('./emailService');
 const crypto = require('crypto');
 const { STORAGE_LIMITS } = require('../config/constants');
 
+const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
+
 /**
  * Đăng ký tài khoản mới
  */
 const register = async (email, password, fullName) => {
+  email = normalizeEmail(email);
+  fullName = String(fullName || '').trim();
+
   // 1. Kiểm tra email tồn tại
   const existingUser = await prisma.user.findUnique({ where: { email } });
   if (existingUser) {
@@ -47,10 +52,17 @@ const register = async (email, password, fullName) => {
     },
   });
 
-  // 5. Gửi email xác thực
-  await emailService.sendVerificationEmail(user.email, verifyToken);
+  // 5. Gửi email xác thực nếu cấu hình SMTP đầy đủ.
+  // Không để lỗi email làm hỏng luồng đăng ký/local demo.
+  if (process.env.SEND_EMAIL !== 'false') {
+    try {
+      await emailService.sendVerificationEmail(user.email, verifyToken);
+    } catch (error) {
+      console.warn('⚠️ Không gửi được email xác thực, tài khoản vẫn được tạo:', error.message);
+    }
+  }
 
-  // 5. Sinh JWT Token
+  // 6. Sinh JWT Token
   const token = generateToken(user);
 
   return { user, token };
@@ -60,6 +72,8 @@ const register = async (email, password, fullName) => {
  * Đăng nhập hệ thống
  */
 const login = async (email, password) => {
+  email = normalizeEmail(email);
+
   // 1. Tìm người dùng theo email
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) {
@@ -76,17 +90,31 @@ const login = async (email, password) => {
     throw error;
   }
 
-  // 3. Sinh JWT Token
+  // 3. Nếu tài khoản cũ đang là 100MB thì nâng về mặc định mới 5GB
+  let normalizedStorageLimit = user.storageLimit;
+  if (Number(normalizedStorageLimit || 0) < STORAGE_LIMITS.BASIC) {
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: { storageLimit: STORAGE_LIMITS.BASIC },
+    });
+    normalizedStorageLimit = updatedUser.storageLimit;
+  }
+
+  // 4. Sinh JWT Token
   const token = generateToken(user);
 
-  // 4. Chuẩn hóa thông tin trả về
+  // 5. Chuẩn hóa thông tin trả về cho FE hiển thị đúng tài khoản đang đăng nhập
   const userResponse = {
     id: user.id,
-    // email: user.email,
-    // fullName: user.fullName,
+    email: user.email,
+    fullName: user.fullName,
     role: user.role,
-    // avatarUrl: user.avatarUrl,
-    // isVerified: user.isVerified,
+    avatarUrl: user.avatarUrl,
+    isVerified: user.isVerified,
+    usedStorage: user.usedStorage,
+    storageLimit: normalizedStorageLimit,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
   };
 
   return { user: userResponse, token };
@@ -96,11 +124,12 @@ const login = async (email, password) => {
  * Gửi yêu cầu quên mật khẩu
  */
 const forgotPassword = async (email) => {
+  email = normalizeEmail(email);
   const user = await prisma.user.findUnique({ where: { email } });
 
   // Tránh Email Enumeration Attack: Luôn báo thành công cho client
   if (!user) {
-    return true;
+    return { success: true, emailSent: null, message: 'Nếu email tồn tại, hệ thống sẽ gửi hướng dẫn đặt lại mật khẩu.' };
   }
 
   // Tạo token ngẫu nhiên thuần (Raw Token)
@@ -119,10 +148,16 @@ const forgotPassword = async (email) => {
     },
   });
 
-  // Gửi link reset (Console log)
-  await emailService.sendResetPassword(user.email, resetToken);
+  // Gửi link reset qua email. Nếu SMTP chưa cấu hình, service sẽ ghi link test trong terminal BE.
+  const mailResult = await emailService.sendResetPassword(user.email, resetToken);
 
-  return true;
+  return {
+    success: true,
+    emailSent: Boolean(mailResult.emailSent),
+    message: mailResult.emailSent
+      ? 'Email hướng dẫn đặt lại mật khẩu đã được gửi.'
+      : 'Chưa gửi được email thật. Kiểm tra SMTP trong .env hoặc xem link test trong terminal BE.',
+  };
 };
 
 /**
@@ -231,10 +266,11 @@ const verifyEmail = async (token) => {
  * Gửi lại email xác thực
  */
 const resendVerificationEmail = async (email) => {
+  email = normalizeEmail(email);
   const user = await prisma.user.findUnique({ where: { email } });
 
   if (!user) {
-    return true; // Tránh Email Enumeration
+    return { success: true, emailSent: null, message: 'Nếu email tồn tại, hệ thống sẽ gửi email xác thực.' };
   }
 
   if (user.isVerified) {
@@ -255,9 +291,15 @@ const resendVerificationEmail = async (email) => {
     },
   });
 
-  await emailService.sendVerificationEmail(user.email, verifyToken);
+  const mailResult = await emailService.sendVerificationEmail(user.email, verifyToken);
 
-  return true;
+  return {
+    success: true,
+    emailSent: Boolean(mailResult.emailSent),
+    message: mailResult.emailSent
+      ? 'Email xác thực đã được gửi.'
+      : 'Chưa gửi được email thật. Kiểm tra SMTP trong .env hoặc xem link test trong terminal BE.',
+  };
 };
 
 module.exports = {

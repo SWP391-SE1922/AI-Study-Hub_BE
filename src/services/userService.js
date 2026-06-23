@@ -1,5 +1,6 @@
 const prisma = require('../config/database');
 const { getPaginationParams, getPaginationMetadata } = require('../utils/pagination');
+const { STORAGE_LIMITS } = require('../config/constants');
 
 /**
  * Lấy danh sách người dùng kèm phân trang & tìm kiếm (Admin Only)
@@ -71,6 +72,26 @@ const getUserById = async (id) => {
     throw error;
   }
 
+  if (Number(user.storageLimit || 0) < STORAGE_LIMITS.BASIC) {
+    const updatedUser = await prisma.user.update({
+      where: { id },
+      data: { storageLimit: STORAGE_LIMITS.BASIC },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        avatarUrl: true,
+        role: true,
+        isVerified: true,
+        usedStorage: true,
+        storageLimit: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    return updatedUser;
+  }
+
   return user;
 };
 
@@ -78,8 +99,16 @@ const getUserById = async (id) => {
  * Cập nhật quyền của người dùng (Admin Only)
  */
 const updateUserRole = async (id, role) => {
-  // Kiểm tra user có tồn tại không
-  await getUserById(id);
+  const user = await getUserById(id);
+
+  if (user.role === 'ADMIN' && role !== 'ADMIN') {
+    const adminCount = await prisma.user.count({ where: { role: 'ADMIN' } });
+    if (adminCount <= 1) {
+      const error = new Error('Không thể hạ quyền admin cuối cùng của hệ thống.');
+      error.statusCode = 400;
+      throw error;
+    }
+  }
 
   const updatedUser = await prisma.user.update({
     where: { id },
@@ -98,9 +127,23 @@ const updateUserRole = async (id, role) => {
 /**
  * Xóa người dùng (Admin Only)
  */
-const deleteUser = async (id) => {
-  // Kiểm tra user có tồn tại không
-  await getUserById(id);
+const deleteUser = async (id, currentUserId) => {
+  if (id === currentUserId) {
+    const error = new Error('Không thể xóa chính tài khoản đang đăng nhập.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const user = await getUserById(id);
+
+  if (user.role === 'ADMIN') {
+    const adminCount = await prisma.user.count({ where: { role: 'ADMIN' } });
+    if (adminCount <= 1) {
+      const error = new Error('Không thể xóa admin cuối cùng của hệ thống.');
+      error.statusCode = 400;
+      throw error;
+    }
+  }
 
   // Xóa tài khoản (các Document liên kết sẽ tự động bị xóa qua onDelete: Cascade)
   await prisma.user.delete({ where: { id } });

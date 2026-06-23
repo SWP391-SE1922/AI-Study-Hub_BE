@@ -6,8 +6,8 @@ const documentRoutes = require('./documentRoutes');
 const folderRoutes = require('./folderRoutes');
 const dashboardRoutes = require('./dashboardRoutes');
 const profileRoutes = require('./profileRoutes');
-const aiRoutes = require('./aiRoutes');
 const subjectRoutes = require('./subjectRoutes');
+const aiRoutes = require('./aiRoutes');
 
 const router = express.Router();
 
@@ -19,7 +19,7 @@ router.use('/documents', documentRoutes);
 router.use('/', folderRoutes); // Mount tại root của /api vì route bên trong đã ghi rõ /folders và /resources
 router.use('/dashboard', dashboardRoutes);
 router.use('/profile', profileRoutes);
-router.use('/ai', aiRoutes);
 router.use('/subjects', subjectRoutes);
+router.use('/ai', aiRoutes);
 
 module.exports = router;

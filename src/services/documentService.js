@@ -1,8 +1,77 @@
+const fs = require('fs');
+const path = require('path');
 const prisma = require('../config/database');
-const { getStorageService } = require('../config/storage');
+const { getStorageService, STORAGE_TYPE, UPLOAD_PATH } = require('../config/storage');
 const { getPaginationParams, getPaginationMetadata } = require('../utils/pagination');
+const { extractFilePreview, extractFilePreviewFromUrl } = require('../utils/filePreview');
+const { STORAGE_LIMITS } = require('../config/constants');
 
 const storageService = getStorageService();
+
+const OFFICE_PREVIEW_EXTENSIONS = new Set(['.pptx', '.docx', '.xlsx']);
+
+function shouldRefreshContentPreview(document) {
+  if (!document) return false;
+  if (!document.contentPreview) return true;
+
+  const extension = path.extname(document.fileName || '').toLowerCase();
+  const isOfficeFile = OFFICE_PREVIEW_EXTENSIONS.has(extension);
+  if (!isOfficeFile) return false;
+
+  // Bản cũ có thể lưu nhầm XML của PPTX/DOCX vào contentPreview.
+  // Nếu phát hiện thẻ XML Office thì đọc lại file và ghi đè preview sạch.
+  return /<\/?[a-zA-Z]+:|&lt;\/?[a-zA-Z]+:/i.test(document.contentPreview);
+}
+
+async function normalizeUserStorageLimit(user) {
+  if (!user) return user;
+  if (Number(user.storageLimit || 0) >= STORAGE_LIMITS.BASIC) return user;
+
+  return prisma.user.update({
+    where: { id: user.id },
+    data: { storageLimit: STORAGE_LIMITS.BASIC },
+  });
+}
+
+
+async function getPreviewFromStoredDocument(document) {
+  if (!shouldRefreshContentPreview(document)) return document;
+
+  const hadBrokenPreview = Boolean(document?.contentPreview);
+  let preview = null;
+
+  if (/^https?:\/\//i.test(document.fileUrl || '')) {
+    preview = await extractFilePreviewFromUrl(document.fileUrl, document);
+  } else if (STORAGE_TYPE.toLowerCase() === 'local' && document.fileUrl) {
+    const localPath = path.join(UPLOAD_PATH, path.basename(document.fileUrl));
+    if (fs.existsSync(localPath)) {
+      preview = await extractFilePreview({
+        path: localPath,
+        originalname: document.fileName,
+        mimetype: document.mimeType,
+        size: document.fileSize,
+      });
+    }
+  }
+
+  if (!preview) {
+    if (hadBrokenPreview) {
+      await prisma.document.update({
+        where: { id: document.id },
+        data: { contentPreview: null },
+      });
+      return { ...document, contentPreview: null };
+    }
+    return document;
+  }
+
+  await prisma.document.update({
+    where: { id: document.id },
+    data: { contentPreview: preview },
+  });
+
+  return { ...document, contentPreview: preview };
+}
 
 /**
  * Đăng tải tài liệu mới (Upload)
@@ -11,14 +80,18 @@ const createDocument = async (userId, file, data) => {
   const { title, description, subject, subjectId, categoryId, folderId, isPublic } = data;
 
   // 0. Kiểm tra dung lượng lưu trữ trước khi xử lý file
-  const user = await prisma.user.findUnique({ where: { id: userId } });
+  let user = await prisma.user.findUnique({ where: { id: userId } });
+  user = await normalizeUserStorageLimit(user);
   if (user && user.usedStorage + file.size > user.storageLimit) {
     const error = new Error('Dung lượng lưu trữ đã vượt quá giới hạn cho phép. Vui lòng xóa bớt tài liệu cũ.');
     error.statusCode = 400;
     throw error;
   }
 
-  // 1. Tải file lên thông qua Storage Service
+  // 1. Trích xuất trước một phần nội dung để hiển thị xem trước
+  const contentPreview = await extractFilePreview(file);
+
+  // 2. Tải file lên thông qua Storage Service
   const fileData = await storageService.upload(file);
 
   // 2. Kiểm tra danh mục
@@ -50,6 +123,7 @@ const createDocument = async (userId, file, data) => {
     data: {
       title,
       description,
+      contentPreview,
       subject,
       subjectId: subjectId || null,
       fileUrl: fileData.fileUrl,
@@ -229,7 +303,7 @@ const getDocumentById = async (currentUser, id) => {
     }
   }
 
-  return document;
+  return getPreviewFromStoredDocument(document);
 };
 
 /**
@@ -279,6 +353,7 @@ const updateDocument = async (userId, userRole, id, data, file = null) => {
 
   // Nếu có file mới thì upload file mới và tạo version mới
   if (file) {
+    const contentPreview = await extractFilePreview(file);
     const fileData = await storageService.upload(file);
     const nextVersion = document.currentVersion + 1;
 
@@ -298,6 +373,7 @@ const updateDocument = async (userId, userRole, id, data, file = null) => {
     updateData.fileName = fileData.fileName;
     updateData.fileSize = fileData.fileSize;
     updateData.mimeType = fileData.mimeType;
+    updateData.contentPreview = contentPreview;
     updateData.currentVersion = nextVersion;
   }
 

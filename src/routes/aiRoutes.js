@@ -1,22 +1,16 @@
 const express = require('express');
-const router = express.Router();
-
+const aiController = require('../controllers/aiController');
 const { authMiddleware } = require('../middlewares/authMiddleware');
 
-router.post('/chat', authMiddleware, async (req, res) => {
-  try {
-    const { message } = req.body;
+const router = express.Router();
 
-    res.json({
-      success: true,
-      reply: `AI trả lời: ${message}`
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
+// Chat AI nội bộ: không dùng OpenAI, không cần OPENAI_API_KEY.
+router.use(authMiddleware);
+
+router.post('/sessions', aiController.createSession);
+router.get('/sessions', aiController.getSessions);
+router.get('/sessions/:sessionId/messages', aiController.getMessages);
+router.delete('/sessions/:sessionId', aiController.deleteSession);
+router.post('/chat', aiController.chat);
 
 module.exports = router;

@@ -38,8 +38,8 @@ const logout = asyncHandler(async (req, res) => {
  */
 const forgotPassword = asyncHandler(async (req, res) => {
   const { email } = req.body;
-  await authService.forgotPassword(email);
-  return sendSuccess(res, 'Email hướng dẫn đặt lại mật khẩu đã được gửi', null, null, 200);
+  const result = await authService.forgotPassword(email);
+  return sendSuccess(res, result?.message || 'Đã xử lý yêu cầu quên mật khẩu', { emailSent: result?.emailSent ?? null }, null, 200);
 });
 
 /**
@@ -96,8 +96,8 @@ const verifyEmail = asyncHandler(async (req, res) => {
  */
 const resendVerificationEmail = asyncHandler(async (req, res) => {
   const { email } = req.body;
-  await authService.resendVerificationEmail(email);
-  return sendSuccess(res, 'Email xác thực đã được gửi lại', null, null, 200);
+  const result = await authService.resendVerificationEmail(email);
+  return sendSuccess(res, result?.message || 'Đã xử lý yêu cầu gửi lại email xác thực', { emailSent: result?.emailSent ?? null }, null, 200);
 });
 
 module.exports = {

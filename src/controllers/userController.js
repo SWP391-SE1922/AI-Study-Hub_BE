@@ -31,7 +31,7 @@ const updateUserRole = asyncHandler(async (req, res) => {
  * Xóa người dùng (Admin Only)
  */
 const deleteUser = asyncHandler(async (req, res) => {
-  await userService.deleteUser(req.params.id);
+  await userService.deleteUser(req.params.id, req.user.id);
   return res.status(204).end(); // Trả về 204 No Content
 });
 

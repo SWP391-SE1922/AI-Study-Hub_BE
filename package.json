@@ -6,10 +6,14 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
-    "setup": "npx prisma generate && npx prisma migrate deploy && npm run seed",
+    "setup": "npm run db:fix",
     "seed": "node prisma/seed.js",
     "migrate": "npx prisma migrate dev",
-    "studio": "npx prisma studio"
+    "studio": "npx prisma studio",
+    "db:generate": "npx prisma generate",
+    "db:push": "npx prisma db push",
+    "db:admin": "node prisma/create-admin.js",
+    "db:fix": "npx prisma generate && npx prisma db push && node prisma/create-admin.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
