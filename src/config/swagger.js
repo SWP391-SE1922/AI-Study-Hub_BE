@@ -12,8 +12,12 @@ const options = {
     },
     servers: [
       {
+        url: process.env.BASE_URL || 'https://xxxx-xx-xx.ngrok-free.app',
+        description: 'Ngrok Server (Cấu hình BASE_URL trong .env)',
+      },
+      {
         url: `http://localhost:${port}`,
-        description: 'Development server',
+        description: 'Local Server',
       },
     ],
     components: {

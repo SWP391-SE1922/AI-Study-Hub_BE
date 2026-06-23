@@ -3,6 +3,7 @@ const { hashPassword, comparePassword } = require('../utils/hashPassword');
 const generateToken = require('../utils/generateToken');
 const emailService = require('./emailService');
 const crypto = require('crypto');
+const { STORAGE_LIMITS } = require('../config/constants');
 
 /**
  * Đăng ký tài khoản mới
@@ -19,7 +20,12 @@ const register = async (email, password, fullName) => {
   // 2. Hash mật khẩu
   const hashedPassword = await hashPassword(password);
 
-  // 3. Tạo tài khoản người dùng mặc định (USER, chưa verify)
+  // 3. Tạo token xác thực
+  const verifyToken = crypto.randomBytes(32).toString('hex');
+  const hashedToken = crypto.createHash('sha256').update(verifyToken).digest('hex');
+  const expireTime = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 giờ
+
+  // 4. Tạo tài khoản người dùng mặc định (USER, chưa verify)
   const user = await prisma.user.create({
     data: {
       email,
@@ -27,6 +33,9 @@ const register = async (email, password, fullName) => {
       fullName,
       role: 'USER',
       isVerified: false,
+      verifyEmailToken: hashedToken,
+      verifyEmailExpire: expireTime,
+      storageLimit: STORAGE_LIMITS.BASIC,
     },
     select: {
       id: true,
@@ -38,8 +47,8 @@ const register = async (email, password, fullName) => {
     },
   });
 
-  // 4. Gửi email chào mừng (Console log)
-  await emailService.sendWelcome(user.email, user.fullName);
+  // 5. Gửi email xác thực
+  await emailService.sendVerificationEmail(user.email, verifyToken);
 
   // 5. Sinh JWT Token
   const token = generateToken(user);
@@ -73,11 +82,11 @@ const login = async (email, password) => {
   // 4. Chuẩn hóa thông tin trả về
   const userResponse = {
     id: user.id,
-    email: user.email,
-    fullName: user.fullName,
+    // email: user.email,
+    // fullName: user.fullName,
     role: user.role,
-    avatarUrl: user.avatarUrl,
-    isVerified: user.isVerified,
+    // avatarUrl: user.avatarUrl,
+    // isVerified: user.isVerified,
   };
 
   return { user: userResponse, token };
@@ -88,7 +97,7 @@ const login = async (email, password) => {
  */
 const forgotPassword = async (email) => {
   const user = await prisma.user.findUnique({ where: { email } });
-  
+
   // Tránh Email Enumeration Attack: Luôn báo thành công cho client
   if (!user) {
     return true;
@@ -185,10 +194,78 @@ const changePassword = async (userId, currentPassword, newPassword) => {
   return true;
 };
 
+/**
+ * Xác thực email
+ */
+const verifyEmail = async (token) => {
+  const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+  const user = await prisma.user.findFirst({
+    where: {
+      verifyEmailToken: hashedToken,
+      verifyEmailExpire: {
+        gt: new Date(),
+      },
+    },
+  });
+
+  if (!user) {
+    const error = new Error('Token không hợp lệ hoặc đã hết hạn.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      isVerified: true,
+      verifyEmailToken: null,
+      verifyEmailExpire: null,
+    },
+  });
+
+  return true;
+};
+
+/**
+ * Gửi lại email xác thực
+ */
+const resendVerificationEmail = async (email) => {
+  const user = await prisma.user.findUnique({ where: { email } });
+
+  if (!user) {
+    return true; // Tránh Email Enumeration
+  }
+
+  if (user.isVerified) {
+    const error = new Error('Email đã được xác thực trước đó.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const verifyToken = crypto.randomBytes(32).toString('hex');
+  const hashedToken = crypto.createHash('sha256').update(verifyToken).digest('hex');
+  const expireTime = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 giờ
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      verifyEmailToken: hashedToken,
+      verifyEmailExpire: expireTime,
+    },
+  });
+
+  await emailService.sendVerificationEmail(user.email, verifyToken);
+
+  return true;
+};
+
 module.exports = {
   register,
   login,
   forgotPassword,
   resetPassword,
   changePassword,
+  verifyEmail,
+  resendVerificationEmail,
 };

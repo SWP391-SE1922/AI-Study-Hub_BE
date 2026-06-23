@@ -102,6 +102,9 @@ router.get('/', authMiddlewareOptional, validate(queryDocumentSchema, 'query'), 
  *               categoryId:
  *                 type: string
  *                 description: Mã UUID danh mục tài liệu
+ *               folderId:
+ *                 type: string
+ *                 description: ID của thư mục ảo chứa file (để trống hoặc 'root' nếu ở ngoài cùng)
  *               isPublic:
  *                 type: boolean
  *                 default: true
