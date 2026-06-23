@@ -9,7 +9,7 @@ const generateToken = (user) => {
   return signToken({
     id: user.id,
     email: user.email,
-    role: user.role,
+    role: user.role && user.role.name ? user.role.name : user.role,
   });
 };
 

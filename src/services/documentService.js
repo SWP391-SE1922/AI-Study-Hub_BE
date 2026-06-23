@@ -8,16 +8,55 @@ const storageService = getStorageService();
  * Đăng tải tài liệu mới (Upload)
  */
 const createDocument = async (userId, file, data) => {
-  const { title, description, subject, categoryId, isPublic } = data;
+  const { title, description, subjectId, categoryId, folderId, isPublic } = data;
+
+  // 0. Kiểm tra dung lượng lưu trữ trước khi xử lý file
+  const user = await prisma.user.findUnique({ 
+    where: { id: userId },
+    include: { role: true }
+  });
+  if (user && user.usedStorage + file.size > user.storageLimit) {
+    const error = new Error('Dung lượng lưu trữ đã vượt quá giới hạn cho phép. Vui lòng xóa bớt tài liệu cũ.');
+    error.statusCode = 400;
+    throw error; // controller nên catch và xóa req.file
+  }
+
+  const roleName = user && user.role ? user.role.name : 'GUEST';
+  let finalIsPublic = isPublic !== undefined ? isPublic : true;
+
+  if (roleName === 'USER') {
+    if (finalIsPublic === true) {
+      const error = new Error('Chỉ giảng viên hoặc quản trị viên mới được đăng tải tài liệu tham khảo (Công khai).');
+      error.statusCode = 403;
+      throw error;
+    }
+    finalIsPublic = false;
+  }
 
   // 1. Tải file lên thông qua Storage Service
   const fileData = await storageService.upload(file);
 
-  // 2. Kiểm tra nếu có categoryId thì phải tồn tại danh mục trong DB
+  // 2. Kiểm tra danh mục
   if (categoryId) {
     const categoryExists = await prisma.category.findUnique({ where: { id: categoryId } });
     if (!categoryExists) {
       throw new Error('Danh mục tài liệu không hợp lệ hoặc đã bị xóa');
+    }
+  }
+
+  // Kiểm tra bộ môn (nếu có)
+  if (subjectId) {
+    const subjectExists = await prisma.subject.findUnique({ where: { id: subjectId } });
+    if (!subjectExists) {
+      throw new Error('Bộ môn không tồn tại.');
+    }
+  }
+
+  // Kiểm tra thư mục (folder)
+  if (folderId && folderId !== 'root') {
+    const folderExists = await prisma.folder.findFirst({ where: { id: folderId, userId } });
+    if (!folderExists) {
+      throw new Error('Thư mục không hợp lệ hoặc không thuộc quyền sở hữu của bạn.');
     }
   }
 
@@ -26,14 +65,16 @@ const createDocument = async (userId, file, data) => {
     data: {
       title,
       description,
-      subject,
+      subjectId: subjectId || null,
       fileUrl: fileData.fileUrl,
       fileName: fileData.fileName,
       fileSize: fileData.fileSize,
       mimeType: fileData.mimeType,
       uploadedBy: userId,
       categoryId: categoryId || null,
-      isPublic: isPublic !== undefined ? isPublic : true,
+      folderId: (folderId && folderId !== 'root') ? folderId : null,
+      isPublic: finalIsPublic,
+      status: 'PROCESSING',
     },
     include: {
       user: {
@@ -42,8 +83,30 @@ const createDocument = async (userId, file, data) => {
       category: {
         select: { id: true, name: true },
       },
+      subject: {
+        select: { id: true, name: true },
+      },
     },
   });
+
+  // 4. Cập nhật usedStorage cho User
+  await prisma.user.update({
+    where: { id: userId },
+    data: { usedStorage: { increment: fileData.fileSize } },
+  });
+
+  // Giả lập tiến trình xử lý bất đồng bộ (parse/chunk/embedding) chuyển status sang COMPLETED
+  setTimeout(async () => {
+    try {
+      await prisma.document.update({
+        where: { id: document.id },
+        data: { status: 'COMPLETED' },
+      });
+      console.log(`[Document] Đã hoàn tất xử lý và chuyển trạng thái sang COMPLETED cho tài liệu ${document.id}`);
+    } catch (error) {
+      console.error('Lỗi cập nhật trạng thái COMPLETED:', error);
+    }
+  }, 5000);
 
   return document;
 };
@@ -53,7 +116,7 @@ const createDocument = async (userId, file, data) => {
  */
 const getAllDocuments = async (currentUser, queryParams) => {
   const { page, limit, skip, take } = getPaginationParams(queryParams);
-  const { search, categoryId, subject, uploadedBy, sortBy, sortOrder } = queryParams;
+  const { search, categoryId, subjectId, uploadedBy, sortBy, sortOrder } = queryParams;
 
   // 1. Xây dựng phân quyền hiển thị (Visibility)
   // Guest: chỉ thấy public
@@ -86,7 +149,7 @@ const getAllDocuments = async (currentUser, queryParams) => {
       ...(where.OR || []),
       { title: { contains: cleanSearch } },
       { description: { contains: cleanSearch } },
-      { subject: { contains: cleanSearch } },
+      { subject: { name: { contains: cleanSearch } } },
     ];
   }
 
@@ -94,8 +157,8 @@ const getAllDocuments = async (currentUser, queryParams) => {
     where.categoryId = categoryId;
   }
 
-  if (subject) {
-    where.subject = { contains: subject };
+  if (subjectId) {
+    where.subjectId = subjectId;
   }
 
   // Chỉ Admin mới được lọc theo tài khoản người tải
@@ -122,6 +185,9 @@ const getAllDocuments = async (currentUser, queryParams) => {
       category: {
         select: { id: true, name: true },
       },
+      subject: {
+        select: { id: true, name: true },
+      },
     },
     orderBy: {
       [finalSortBy]: finalSortOrder,
@@ -144,6 +210,9 @@ const getDocumentById = async (currentUser, id) => {
         select: { id: true, fullName: true, avatarUrl: true },
       },
       category: {
+        select: { id: true, name: true },
+      },
+      subject: {
         select: { id: true, name: true },
       },
     },
@@ -186,7 +255,7 @@ const updateDocument = async (userId, userRole, id, data) => {
     throw error;
   }
 
-  const { title, description, subject, categoryId, isPublic } = data;
+  const { title, description, subjectId, categoryId, isPublic } = data;
 
   if (categoryId) {
     const categoryExists = await prisma.category.findUnique({ where: { id: categoryId } });
@@ -200,7 +269,7 @@ const updateDocument = async (userId, userRole, id, data) => {
     data: {
       ...(title && { title }),
       ...(description !== undefined && { description }),
-      ...(subject !== undefined && { subject }),
+      ...(subjectId !== undefined && { subjectId: subjectId || null }),
       ...(categoryId !== undefined && { categoryId: categoryId || null }),
       ...(isPublic !== undefined && { isPublic }),
     },
@@ -209,6 +278,9 @@ const updateDocument = async (userId, userRole, id, data) => {
         select: { id: true, fullName: true, avatarUrl: true },
       },
       category: {
+        select: { id: true, name: true },
+      },
+      subject: {
         select: { id: true, name: true },
       },
     },
@@ -239,7 +311,23 @@ const deleteDocument = async (userId, userRole, id) => {
   // 1. Xóa file vật lý trên ổ đĩa thông qua Storage Service
   await storageService.delete(document.fileUrl);
 
-  // 2. Xóa bản ghi trong DB
+  // 2. Trừ dung lượng usedStorage của User
+  await prisma.user.update({
+    where: { id: document.uploadedBy },
+    data: { 
+      usedStorage: { 
+        decrement: document.fileSize 
+      } 
+    },
+  });
+
+  // Đảm bảo usedStorage không bị âm (Trường hợp DB bị lệch)
+  const user = await prisma.user.findUnique({ where: { id: document.uploadedBy } });
+  if (user && user.usedStorage < 0) {
+    await prisma.user.update({ where: { id: document.uploadedBy }, data: { usedStorage: 0 } });
+  }
+
+  // 3. Xóa bản ghi trong DB
   await prisma.document.delete({ where: { id } });
 
   return true;

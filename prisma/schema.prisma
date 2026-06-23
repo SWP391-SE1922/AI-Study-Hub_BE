@@ -12,16 +12,44 @@ model User {
   email               String    @unique
   password            String
   fullName            String
+  phoneNumber         String?
   avatarUrl           String?
-  role                String    @default("USER") // GUEST, USER, ADMIN
+  roleId              String?
+  role                Role?     @relation(fields: [roleId], references: [id], onDelete: SetNull)
   isVerified          Boolean   @default(false)
+  verifyEmailToken    String?
+  verifyEmailExpire   DateTime?
   resetPasswordToken  String?
   resetPasswordExpire DateTime?
+  usedStorage         Float     @default(0) // Dung lượng đã dùng (Bytes)
+  storageLimit        Float     // Giới hạn dung lượng (Bytes)
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
   documents           Document[]
+  folders             Folder[]
+  chatMessages        ChatMessage[]
+  subjects            Subject[]  @relation("TeacherSubjects")
 
   @@map("users")
+}
+
+model Role {
+  id    String @id @default(uuid())
+  name  String @unique // "USER", "ADMIN", "TEACHER", "GUEST"
+  users User[]
+
+  @@map("roles")
+}
+
+model Subject {
+  id          String     @id @default(uuid())
+  name        String     @unique
+  description String?
+  teacherId   String?
+  teacher     User?      @relation("TeacherSubjects", fields: [teacherId], references: [id], onDelete: SetNull)
+  documents   Document[]
+
+  @@map("subjects")
 }
 
 model Category {
@@ -35,23 +63,59 @@ model Category {
   @@map("categories")
 }
 
+model Folder {
+  id        String     @id @default(uuid())
+  name      String
+  userId    String
+  parentId  String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent    Folder?    @relation("FolderToFolder", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children  Folder[]   @relation("FolderToFolder")
+  documents Document[]
+
+  @@unique([name, parentId, userId]) // Không cho phép trùng tên folder trong cùng 1 parent của cùng 1 user
+  @@map("folders")
+}
+
 model Document {
   id            String    @id @default(uuid())
   title         String
   description   String?
-  subject       String?
+  subjectId     String?
   fileUrl       String
   fileName      String
   fileSize      Int
   mimeType      String
   uploadedBy    String
   categoryId    String?
+  folderId      String?
   isPublic      Boolean   @default(true)
+  status        String    @default("PROCESSING")
   downloadCount Int       @default(0)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   user          User      @relation(fields: [uploadedBy], references: [id], onDelete: Cascade)
   category      Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  folder        Folder?   @relation(fields: [folderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  subject       Subject?  @relation(fields: [subjectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  chatMessages  ChatMessage[]
 
   @@map("documents")
+}
+
+model ChatMessage {
+  id         String   @id @default(uuid())
+  sessionId  String?
+  userId     String?
+  question   String
+  answer     String
+  documentId String?
+  createdAt  DateTime @default(now())
+
+  user       User?     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  document   Document? @relation(fields: [documentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("chat_messages")
 }

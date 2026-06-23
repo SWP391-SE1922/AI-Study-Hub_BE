@@ -13,6 +13,9 @@ const registerSchema = Joi.object({
     'string.empty': 'Họ và tên không được để trống',
     'any.required': 'Họ và tên là bắt buộc',
   }),
+  phoneNumber: Joi.string().pattern(/^[0-9]{10,11}$/).optional().messages({
+    'string.pattern.base': 'Số điện thoại không hợp lệ',
+  }),
 });
 
 const loginSchema = Joi.object({
@@ -45,6 +48,9 @@ const resetPasswordSchema = Joi.object({
 const updateProfileSchema = Joi.object({
   fullName: Joi.string().trim().optional().messages({
     'string.empty': 'Họ và tên không được để trống',
+  }),
+  phoneNumber: Joi.string().pattern(/^[0-9]{10,11}$/).optional().messages({
+    'string.pattern.base': 'Số điện thoại không hợp lệ',
   }),
   avatarUrl: Joi.string().uri().allow('', null).optional().messages({
     'string.uri': 'Đường dẫn ảnh đại diện không hợp lệ',
