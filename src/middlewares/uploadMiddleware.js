@@ -2,6 +2,7 @@ const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const { UPLOAD_PATH, MAX_FILE_SIZE } = require('../config/storage');
+const { normalizeUploadedFileName } = require('../utils/fileName');
 
 // 1. Cấu hình nơi lưu và tên file lưu trữ trên disk
 const storage = multer.diskStorage({
@@ -9,6 +10,9 @@ const storage = multer.diskStorage({
     cb(null, UPLOAD_PATH);
   },
   filename: (req, file, cb) => {
+    // Chuẩn hóa tên file tiếng Việt trước khi lấy đuôi và lưu vào DB.
+    file.originalname = normalizeUploadedFileName(file.originalname);
+
     // Tên file trên disk là uuid + đuôi mở rộng gốc
     const ext = path.extname(file.originalname);
     cb(null, `${uuidv4()}${ext}`);
@@ -46,7 +50,7 @@ const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: MAX_FILE_SIZE, // 10MB
+    fileSize: MAX_FILE_SIZE,
   },
 });
 
