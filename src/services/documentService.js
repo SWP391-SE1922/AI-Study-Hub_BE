@@ -5,26 +5,10 @@ const { getStorageService, STORAGE_TYPE, UPLOAD_PATH } = require('../config/stor
 const { getPaginationParams, getPaginationMetadata } = require('../utils/pagination');
 const { extractFilePreview, extractFilePreviewFromUrl } = require('../utils/filePreview');
 const { STORAGE_LIMITS } = require('../config/constants');
-const { normalizeUploadedFileName, normalizeDocumentFileNames } = require('../utils/fileName');
 
 const storageService = getStorageService();
 
 const OFFICE_PREVIEW_EXTENSIONS = new Set(['.pptx', '.docx', '.xlsx']);
-
-const DOCUMENT_INCLUDE = {
-  user: {
-    select: { id: true, fullName: true, avatarUrl: true },
-  },
-  subjectRef: {
-    select: { id: true, name: true, code: true },
-  },
-  category: {
-    select: { id: true, name: true },
-  },
-  versions: {
-    orderBy: { version: 'desc' },
-  },
-};
 
 function shouldRefreshContentPreview(document) {
   if (!document) return false;
@@ -49,103 +33,88 @@ async function normalizeUserStorageLimit(user) {
   });
 }
 
-function cleanString(value) {
-  return String(value || '').trim();
+function cleanText(value) {
+  if (value === undefined || value === null) return undefined;
+  const text = String(value).trim();
+  return text || undefined;
 }
 
-function toNullableId(value) {
-  const text = cleanString(value);
-  if (!text || text === 'root' || text === 'null' || text === 'undefined') return null;
-  return text;
+function buildVisibilityCondition(currentUser) {
+  if (!currentUser) return { isPublic: true };
+  if (currentUser.role === 'ADMIN') return null;
+
+  return {
+    OR: [
+      { isPublic: true },
+      { uploadedBy: currentUser.id },
+    ],
+  };
 }
 
-function parseBoolean(value, defaultValue = true) {
-  if (value === undefined || value === null || value === '') return defaultValue;
-  if (typeof value === 'boolean') return value;
-  return String(value).toLowerCase() === 'true';
+function buildSearchCondition(search) {
+  const cleanSearch = cleanText(search);
+  if (!cleanSearch) return null;
+
+  return {
+    OR: [
+      { title: { contains: cleanSearch } },
+      { description: { contains: cleanSearch } },
+      { subject: { contains: cleanSearch } },
+      { fileName: { contains: cleanSearch } },
+      { category: { is: { name: { contains: cleanSearch } } } },
+      { subjectRef: { is: { name: { contains: cleanSearch } } } },
+      { subjectRef: { is: { code: { contains: cleanSearch } } } },
+    ],
+  };
 }
 
-function comparableText(value) {
-  return normalizeUploadedFileName(value || '')
-    .normalize('NFC')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
+function buildSubjectCondition({ subjectId, subject }) {
+  const cleanSubjectId = cleanText(subjectId);
+  const cleanSubject = cleanText(subject);
+
+  if (cleanSubjectId) return { subjectId: cleanSubjectId };
+  if (!cleanSubject) return null;
+
+  return {
+    OR: [
+      { subject: { contains: cleanSubject } },
+      { subjectRef: { is: { name: { contains: cleanSubject } } } },
+      { subjectRef: { is: { code: { contains: cleanSubject } } } },
+    ],
+  };
 }
 
-function comparableFileBase(fileName) {
-  const safeName = normalizeUploadedFileName(fileName || '');
-  return comparableText(path.basename(safeName, path.extname(safeName)));
+function mergeAndConditions(conditions) {
+  const compact = conditions.filter(Boolean);
+  if (compact.length === 0) return {};
+  if (compact.length === 1) return compact[0];
+  return { AND: compact };
 }
 
-function comparableExtension(fileName) {
-  return path.extname(normalizeUploadedFileName(fileName || '')).toLowerCase();
-}
+function buildDocumentWhere(currentUser, queryParams, options = {}) {
+  const { search, categoryId, subject, subjectId, uploadedBy } = queryParams;
+  const andConditions = [];
 
-function isSameDocumentCandidate(document, uploadedFileName, title) {
-  const newFileKey = comparableText(uploadedFileName);
-  const oldFileKey = comparableText(document.fileName);
-
-  if (newFileKey && oldFileKey && newFileKey === oldFileKey) return true;
-
-  const newBaseKey = comparableFileBase(uploadedFileName);
-  const oldBaseKey = comparableFileBase(document.fileName);
-  const newExt = comparableExtension(uploadedFileName);
-  const oldExt = comparableExtension(document.fileName);
-
-  if (newBaseKey && oldBaseKey && newBaseKey === oldBaseKey && newExt === oldExt) {
-    return true;
+  if (options.ownerId) {
+    andConditions.push({ uploadedBy: options.ownerId });
+  } else {
+    andConditions.push(buildVisibilityCondition(currentUser));
   }
 
-  const newTitleKey = comparableText(title);
-  const oldTitleKey = comparableText(document.title);
+  andConditions.push(buildSearchCondition(search));
 
-  return Boolean(newTitleKey && oldTitleKey && newTitleKey === oldTitleKey && newExt === oldExt);
-}
+  const cleanCategoryId = cleanText(categoryId);
+  if (cleanCategoryId) andConditions.push({ categoryId: cleanCategoryId });
 
-async function findExistingDocumentForNewVersion(userId, uploadedFileName, title) {
-  const recentDocuments = await prisma.document.findMany({
-    where: { uploadedBy: userId },
-    orderBy: { updatedAt: 'desc' },
-    take: 200,
-    select: {
-      id: true,
-      title: true,
-      fileName: true,
-      currentVersion: true,
-      uploadedBy: true,
-      isPublic: true,
-      categoryId: true,
-      subjectId: true,
-      folderId: true,
-    },
-  });
+  andConditions.push(buildSubjectCondition({ subjectId, subject }));
 
-  return recentDocuments.find((document) => isSameDocumentCandidate(document, uploadedFileName, title)) || null;
-}
-
-async function getNextVersion(client, documentId, fallbackCurrentVersion = 1) {
-  const latestVersion = await client.documentVersion.findFirst({
-    where: { documentId },
-    orderBy: { version: 'desc' },
-    select: { version: true },
-  });
-
-  return Math.max(Number(fallbackCurrentVersion || 0), Number(latestVersion?.version || 0)) + 1;
-}
-
-async function assertCanStoreMore(userId, fileSize) {
-  let user = await prisma.user.findUnique({ where: { id: userId } });
-  user = await normalizeUserStorageLimit(user);
-
-  if (user && Number(user.usedStorage || 0) + Number(fileSize || 0) > Number(user.storageLimit || 0)) {
-    const error = new Error('Dung lượng lưu trữ đã vượt quá giới hạn cho phép. Vui lòng xóa bớt tài liệu cũ.');
-    error.statusCode = 400;
-    throw error;
+  if (uploadedBy && currentUser && currentUser.role === 'ADMIN') {
+    andConditions.push({ uploadedBy });
   }
 
-  return user;
+  return mergeAndConditions(andConditions);
 }
+
 
 async function getPreviewFromStoredDocument(document) {
   if (!shouldRefreshContentPreview(document)) return document;
@@ -187,154 +156,108 @@ async function getPreviewFromStoredDocument(document) {
 }
 
 /**
- * Đăng tải tài liệu.
- * Nếu người dùng upload lại cùng một tài liệu, hệ thống sẽ tạo version mới thay vì tạo document mới.
+ * Đăng tải tài liệu mới (Upload)
  */
 const createDocument = async (userId, file, data) => {
   const { title, description, subject, subjectId, categoryId, folderId, isPublic } = data;
 
-  const cleanTitle = cleanString(title);
-  if (!cleanTitle) {
-    const error = new Error('Vui lòng nhập tiêu đề tài liệu.');
+  // 0. Kiểm tra dung lượng lưu trữ trước khi xử lý file
+  let user = await prisma.user.findUnique({ where: { id: userId } });
+  user = await normalizeUserStorageLimit(user);
+  if (user && user.usedStorage + file.size > user.storageLimit) {
+    const error = new Error('Dung lượng lưu trữ đã vượt quá giới hạn cho phép. Vui lòng xóa bớt tài liệu cũ.');
     error.statusCode = 400;
     throw error;
   }
 
-  const finalSubjectId = subjectId !== undefined ? toNullableId(subjectId) : null;
-  const finalCategoryId = categoryId !== undefined ? toNullableId(categoryId) : null;
-  const finalFolderId = folderId !== undefined ? toNullableId(folderId) : null;
-
-  // 0. Kiểm tra dung lượng lưu trữ trước khi xử lý file
-  await assertCanStoreMore(userId, file.size);
-
-  // 1. Kiểm tra danh mục
-  if (finalCategoryId) {
-    const categoryExists = await prisma.category.findUnique({ where: { id: finalCategoryId } });
-    if (!categoryExists) {
-      const error = new Error('Danh mục tài liệu không hợp lệ hoặc đã bị xóa');
-      error.statusCode = 400;
-      throw error;
-    }
-  }
-
-  // 2. Kiểm tra thư mục
-  if (finalFolderId) {
-    const folderExists = await prisma.folder.findFirst({ where: { id: finalFolderId, userId } });
-    if (!folderExists) {
-      const error = new Error('Thư mục không hợp lệ hoặc không thuộc quyền sở hữu của bạn.');
-      error.statusCode = 400;
-      throw error;
-    }
-  }
-
-  // 3. Kiểm tra môn học
-  if (finalSubjectId) {
-    const subjectExists = await prisma.subject.findUnique({ where: { id: finalSubjectId } });
-    if (!subjectExists) {
-      const error = new Error('Môn học không hợp lệ hoặc đã bị xóa');
-      error.statusCode = 400;
-      throw error;
-    }
-  }
-
-  // 4. Trích xuất preview và upload file
+  // 1. Trích xuất trước một phần nội dung để hiển thị xem trước
   const contentPreview = await extractFilePreview(file);
+
+  // 2. Tải file lên thông qua Storage Service
   const fileData = await storageService.upload(file);
-  const safeFileName = normalizeUploadedFileName(fileData.fileName);
 
-  // 5. Nếu upload trùng tài liệu của cùng user thì tạo version mới
-  const existingDocument = await findExistingDocumentForNewVersion(userId, safeFileName, cleanTitle);
-
-  if (existingDocument) {
-    const updatedDocument = await prisma.$transaction(async (tx) => {
-      const nextVersion = await getNextVersion(tx, existingDocument.id, existingDocument.currentVersion);
-
-      await tx.documentVersion.create({
-        data: {
-          documentId: existingDocument.id,
-          version: nextVersion,
-          fileUrl: fileData.fileUrl,
-          fileName: safeFileName,
-          fileSize: fileData.fileSize,
-          mimeType: fileData.mimeType,
-          uploadedBy: userId,
-        },
-      });
-
-      await tx.user.update({
-        where: { id: existingDocument.uploadedBy },
-        data: { usedStorage: { increment: fileData.fileSize } },
-      });
-
-      return tx.document.update({
-        where: { id: existingDocument.id },
-        data: {
-          title: cleanTitle,
-          description: description !== undefined ? description : undefined,
-          subject: subject !== undefined ? subject : undefined,
-          ...(subjectId !== undefined && { subjectId: finalSubjectId }),
-          ...(categoryId !== undefined && { categoryId: finalCategoryId }),
-          ...(folderId !== undefined && { folderId: finalFolderId }),
-          isPublic: parseBoolean(isPublic, existingDocument.isPublic),
-          fileUrl: fileData.fileUrl,
-          fileName: safeFileName,
-          fileSize: fileData.fileSize,
-          mimeType: fileData.mimeType,
-          contentPreview,
-          currentVersion: nextVersion,
-        },
-        include: DOCUMENT_INCLUDE,
-      });
-    });
-
-    return normalizeDocumentFileNames(updatedDocument);
+  // 2. Kiểm tra danh mục
+  if (categoryId) {
+    const categoryExists = await prisma.category.findUnique({ where: { id: categoryId } });
+    if (!categoryExists) {
+      throw new Error('Danh mục tài liệu không hợp lệ hoặc đã bị xóa');
+    }
   }
 
-  // 6. Nếu chưa có tài liệu trùng thì tạo document mới version 1
-  const document = await prisma.$transaction(async (tx) => {
-    const createdDocument = await tx.document.create({
-      data: {
-        title: cleanTitle,
-        description,
-        contentPreview,
-        subject,
-        subjectId: finalSubjectId,
-        fileUrl: fileData.fileUrl,
-        fileName: safeFileName,
-        fileSize: fileData.fileSize,
-        mimeType: fileData.mimeType,
-        uploadedBy: userId,
-        categoryId: finalCategoryId,
-        folderId: finalFolderId,
-        isPublic: parseBoolean(isPublic, true),
-        currentVersion: 1,
+  // Kiểm tra thư mục (folder)
+  if (folderId && folderId !== 'root') {
+    const folderExists = await prisma.folder.findFirst({ where: { id: folderId, userId } });
+    if (!folderExists) {
+      throw new Error('Thư mục không hợp lệ hoặc không thuộc quyền sở hữu của bạn.');
+    }
+  }
+
+  // 3. Kiểm tra nếu có subjectId thì phải tồn tại môn học trong DB
+  let subjectRecord = null;
+  if (subjectId) {
+    subjectRecord = await prisma.subject.findUnique({ where: { id: subjectId } });
+    if (!subjectRecord) {
+      throw new Error('Môn học không hợp lệ hoặc đã bị xóa');
+    }
+  }
+
+  const normalizedSubject = cleanText(subject) || subjectRecord?.name || null;
+
+  // 4. Lưu bản ghi vào cơ sở dữ liệu
+  const document = await prisma.document.create({
+    data: {
+      title,
+      description,
+      contentPreview,
+      subject: normalizedSubject,
+      subjectId: subjectId || null,
+      fileUrl: fileData.fileUrl,
+      fileName: fileData.fileName,
+      fileSize: fileData.fileSize,
+      mimeType: fileData.mimeType,
+      uploadedBy: userId,
+      categoryId: categoryId || null,
+      folderId: (folderId && folderId !== 'root') ? folderId : null,
+      isPublic: isPublic !== undefined ? isPublic : true,
+      currentVersion: 1,
+    },
+    include: {
+      user: {
+        select: { id: true, fullName: true, avatarUrl: true },
       },
-    });
-
-    await tx.user.update({
-      where: { id: userId },
-      data: { usedStorage: { increment: fileData.fileSize } },
-    });
-
-    await tx.documentVersion.create({
-      data: {
-        documentId: createdDocument.id,
-        version: 1,
-        fileUrl: fileData.fileUrl,
-        fileName: safeFileName,
-        fileSize: fileData.fileSize,
-        mimeType: fileData.mimeType,
-        uploadedBy: userId,
+      subjectRef: {
+        select: {
+          id: true,
+          name: true,
+          code: true,
+        },
       },
-    });
-
-    return tx.document.findUnique({
-      where: { id: createdDocument.id },
-      include: DOCUMENT_INCLUDE,
-    });
+      category: {
+        select: { id: true, name: true },
+      },
+    },
   });
 
-  return normalizeDocumentFileNames(document);
+  // 4. Cập nhật usedStorage cho User
+  await prisma.user.update({
+    where: { id: userId },
+    data: { usedStorage: { increment: fileData.fileSize } },
+  });
+
+  // 5. Tạo version đầu tiên cho tài liệu
+  await prisma.documentVersion.create({
+    data: {
+      documentId: document.id,
+      version: 1,
+      fileUrl: fileData.fileUrl,
+      fileName: fileData.fileName,
+      fileSize: fileData.fileSize,
+      mimeType: fileData.mimeType,
+      uploadedBy: userId,
+    },
+  });
+
+  return document;
 };
 
 /**
@@ -342,62 +265,14 @@ const createDocument = async (userId, file, data) => {
  */
 const getAllDocuments = async (currentUser, queryParams) => {
   const { page, limit, skip, take } = getPaginationParams(queryParams);
-  const { search, categoryId, subject, subjectId, uploadedBy, sortBy, sortOrder } = queryParams;
+  const { sortBy, sortOrder } = queryParams;
 
-  // 1. Xây dựng phân quyền hiển thị
-  let visibilityCondition = { isPublic: true };
+  const where = buildDocumentWhere(currentUser, queryParams);
 
-  if (currentUser) {
-    if (currentUser.role === 'ADMIN') {
-      visibilityCondition = {};
-    } else if (currentUser.role === 'USER') {
-      visibilityCondition = {
-        OR: [
-          { isPublic: true },
-          { uploadedBy: currentUser.id },
-        ],
-      };
-    }
-  }
-
-  // 2. Xây dựng bộ lọc chi tiết
-  const where = {
-    ...visibilityCondition,
-  };
-
-  if (search) {
-    const cleanSearch = search.trim();
-    where.OR = [
-      ...(where.OR || []),
-      { title: { contains: cleanSearch } },
-      { description: { contains: cleanSearch } },
-      { subject: { contains: cleanSearch } },
-    ];
-  }
-
-  if (categoryId) {
-    where.categoryId = categoryId;
-  }
-
-  if (subject) {
-    where.subject = { contains: subject };
-  }
-
-  if (subjectId) {
-    where.subjectId = subjectId;
-  }
-
-  // Chỉ Admin mới được lọc theo tài khoản người tải
-  if (uploadedBy && currentUser && currentUser.role === 'ADMIN') {
-    where.uploadedBy = uploadedBy;
-  }
-
-  // 3. Xử lý sắp xếp
   const allowedSortFields = ['createdAt', 'title', 'downloadCount', 'fileSize'];
   const finalSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'createdAt';
   const finalSortOrder = sortOrder === 'asc' ? 'asc' : 'desc';
 
-  // 4. Thực thi truy vấn đếm và lấy dữ liệu
   const total = await prisma.document.count({ where });
 
   const documents = await prisma.document.findMany({
@@ -422,7 +297,7 @@ const getAllDocuments = async (currentUser, queryParams) => {
 
   const pagination = getPaginationMetadata(total, page, limit);
 
-  return { documents: normalizeDocumentFileNames(documents), pagination };
+  return { documents, pagination };
 };
 
 /**
@@ -431,7 +306,20 @@ const getAllDocuments = async (currentUser, queryParams) => {
 const getDocumentById = async (currentUser, id) => {
   const document = await prisma.document.findUnique({
     where: { id },
-    include: DOCUMENT_INCLUDE,
+    include: {
+      user: {
+        select: { id: true, fullName: true, avatarUrl: true },
+      },
+      subjectRef: {
+        select: { id: true, name: true, code: true },
+      },
+      category: {
+        select: { id: true, name: true },
+      },
+      versions: {
+        orderBy: { version: 'desc' },
+      },
+    },
   });
 
   if (!document) {
@@ -440,7 +328,7 @@ const getDocumentById = async (currentUser, id) => {
     throw error;
   }
 
-  // Kiểm tra quyền xem tài liệu riêng tư
+  // Kiểm tra quyền xem tài liệu riêng tư (isPublic = false)
   if (!document.isPublic) {
     if (!currentUser || (document.uploadedBy !== currentUser.id && currentUser.role !== 'ADMIN')) {
       const error = new Error('Bạn không có quyền truy cập tài liệu riêng tư này.');
@@ -449,13 +337,12 @@ const getDocumentById = async (currentUser, id) => {
     }
   }
 
-  const previewDocument = await getPreviewFromStoredDocument(document);
-  return normalizeDocumentFileNames(previewDocument);
+  return getPreviewFromStoredDocument(document);
 };
 
 /**
- * Cập nhật tài liệu.
- * Nếu có upload file mới thì tạo version mới, không xóa file cũ.
+ * Cập nhật tài liệu
+ * Nếu có upload file mới thì tạo version mới, không xóa file cũ
  */
 const updateDocument = async (userId, userRole, id, data, file = null) => {
   const document = await prisma.document.findUnique({ where: { id } });
@@ -473,101 +360,87 @@ const updateDocument = async (userId, userRole, id, data, file = null) => {
     throw error;
   }
 
-  const { title, description, subject, subjectId, categoryId, folderId, isPublic } = data;
-  const finalSubjectId = subjectId !== undefined ? toNullableId(subjectId) : null;
-  const finalCategoryId = categoryId !== undefined ? toNullableId(categoryId) : null;
-  const finalFolderId = folderId !== undefined ? toNullableId(folderId) : null;
+  const { title, description, subject, subjectId, categoryId, isPublic } = data;
 
-  if (finalCategoryId) {
-    const categoryExists = await prisma.category.findUnique({ where: { id: finalCategoryId } });
+  if (categoryId) {
+    const categoryExists = await prisma.category.findUnique({ where: { id: categoryId } });
     if (!categoryExists) {
-      const error = new Error('Danh mục tài liệu không hợp lệ');
-      error.statusCode = 400;
-      throw error;
+      throw new Error('Danh mục tài liệu không hợp lệ');
     }
   }
 
-  if (finalSubjectId) {
-    const subjectExists = await prisma.subject.findUnique({ where: { id: finalSubjectId } });
-    if (!subjectExists) {
-      const error = new Error('Môn học không hợp lệ');
-      error.statusCode = 400;
-      throw error;
+  let subjectRecord = null;
+  if (subjectId) {
+    subjectRecord = await prisma.subject.findUnique({ where: { id: subjectId } });
+    if (!subjectRecord) {
+      throw new Error('Môn học không hợp lệ');
     }
   }
 
-  if (finalFolderId) {
-    const folderExists = await prisma.folder.findFirst({ where: { id: finalFolderId, userId: document.uploadedBy } });
-    if (!folderExists) {
-      const error = new Error('Thư mục không hợp lệ hoặc không thuộc quyền sở hữu của bạn.');
-      error.statusCode = 400;
-      throw error;
-    }
-  }
+  const normalizedSubject = subject !== undefined
+    ? (cleanText(subject) || null)
+    : (subjectId ? subjectRecord?.name || null : undefined);
 
   const updateData = {
-    ...(title !== undefined && { title: cleanString(title) }),
+    ...(title !== undefined && { title }),
     ...(description !== undefined && { description }),
-    ...(subject !== undefined && { subject }),
-    ...(subjectId !== undefined && { subjectId: finalSubjectId }),
-    ...(categoryId !== undefined && { categoryId: finalCategoryId }),
-    ...(folderId !== undefined && { folderId: finalFolderId }),
-    ...(isPublic !== undefined && { isPublic: parseBoolean(isPublic, document.isPublic) }),
+    ...(normalizedSubject !== undefined && { subject: normalizedSubject }),
+    ...(subjectId !== undefined && { subjectId: subjectId || null }),
+    ...(categoryId !== undefined && { categoryId: categoryId || null }),
+    ...(isPublic !== undefined && { isPublic }),
   };
 
   // Nếu có file mới thì upload file mới và tạo version mới
   if (file) {
-    await assertCanStoreMore(document.uploadedBy, file.size);
-
     const contentPreview = await extractFilePreview(file);
     const fileData = await storageService.upload(file);
-    const safeFileName = normalizeUploadedFileName(fileData.fileName);
+    const nextVersion = document.currentVersion + 1;
 
-    const updatedDocument = await prisma.$transaction(async (tx) => {
-      const nextVersion = await getNextVersion(tx, document.id, document.currentVersion);
-
-      await tx.documentVersion.create({
-        data: {
-          documentId: document.id,
-          version: nextVersion,
-          fileUrl: fileData.fileUrl,
-          fileName: safeFileName,
-          fileSize: fileData.fileSize,
-          mimeType: fileData.mimeType,
-          uploadedBy: userId,
-        },
-      });
-
-      await tx.user.update({
-        where: { id: document.uploadedBy },
-        data: { usedStorage: { increment: fileData.fileSize } },
-      });
-
-      return tx.document.update({
-        where: { id },
-        data: {
-          ...updateData,
-          fileUrl: fileData.fileUrl,
-          fileName: safeFileName,
-          fileSize: fileData.fileSize,
-          mimeType: fileData.mimeType,
-          contentPreview,
-          currentVersion: nextVersion,
-        },
-        include: DOCUMENT_INCLUDE,
-      });
+    await prisma.documentVersion.create({
+      data: {
+        documentId: document.id,
+        version: nextVersion,
+        fileUrl: fileData.fileUrl,
+        fileName: fileData.fileName,
+        fileSize: fileData.fileSize,
+        mimeType: fileData.mimeType,
+        uploadedBy: userId,
+      },
     });
 
-    return normalizeDocumentFileNames(updatedDocument);
+    updateData.fileUrl = fileData.fileUrl;
+    updateData.fileName = fileData.fileName;
+    updateData.fileSize = fileData.fileSize;
+    updateData.mimeType = fileData.mimeType;
+    updateData.contentPreview = contentPreview;
+    updateData.currentVersion = nextVersion;
+
+    await prisma.user.update({
+      where: { id: document.uploadedBy },
+      data: { usedStorage: { increment: fileData.fileSize } },
+    });
   }
 
   const updatedDocument = await prisma.document.update({
     where: { id },
     data: updateData,
-    include: DOCUMENT_INCLUDE,
+    include: {
+      user: {
+        select: { id: true, fullName: true, avatarUrl: true },
+      },
+      subjectRef: {
+        select: { id: true, name: true, code: true },
+      },
+      category: {
+        select: { id: true, name: true },
+      },
+      versions: {
+        orderBy: { version: 'desc' },
+      },
+    },
   });
 
-  return normalizeDocumentFileNames(updatedDocument);
+  return updatedDocument;
 };
 
 /**
@@ -599,22 +472,18 @@ const deleteDocument = async (userId, userRole, id) => {
     await storageService.delete(version.fileUrl);
   }
 
-  // 2. Trừ dung lượng usedStorage của User theo tổng dung lượng version
-  const totalVersionSize = document.versions.reduce(
-    (sum, version) => sum + Number(version.fileSize || 0),
-    0
-  ) || Number(document.fileSize || 0);
-
+  // 2. Trừ dung lượng usedStorage của User theo toàn bộ phiên bản đã lưu
+  const totalVersionSize = document.versions.reduce((sum, version) => sum + Number(version.fileSize || 0), 0);
   await prisma.user.update({
     where: { id: document.uploadedBy },
     data: {
       usedStorage: {
-        decrement: totalVersionSize,
+        decrement: totalVersionSize || document.fileSize,
       },
     },
   });
 
-  // Đảm bảo usedStorage không bị âm
+  // Đảm bảo usedStorage không bị âm (Trường hợp DB bị lệch)
   const user = await prisma.user.findUnique({ where: { id: document.uploadedBy } });
   if (user && user.usedStorage < 0) {
     await prisma.user.update({ where: { id: document.uploadedBy }, data: { usedStorage: 0 } });
@@ -627,7 +496,7 @@ const deleteDocument = async (userId, userRole, id) => {
 };
 
 /**
- * Tải xuống tài liệu
+ * Tải xuống tài liệu (Download)
  */
 const downloadDocument = async (currentUser, id) => {
   // 1. Lấy chi tiết và kiểm tra phân quyền truy cập
@@ -650,24 +519,13 @@ const downloadDocument = async (currentUser, id) => {
 };
 
 /**
- * Lấy danh sách tài liệu của người dùng hiện tại
+ * Lấy danh sách tài liệu của người dùng hiện tại (My Documents)
  */
 const getMyDocuments = async (userId, queryParams) => {
   const { page, limit, skip, take } = getPaginationParams(queryParams);
-  const { search, sortBy, sortOrder } = queryParams;
+  const { sortBy, sortOrder } = queryParams;
 
-  const where = {
-    uploadedBy: userId,
-  };
-
-  if (search) {
-    const cleanSearch = search.trim();
-    where.OR = [
-      { title: { contains: cleanSearch } },
-      { description: { contains: cleanSearch } },
-      { subject: { contains: cleanSearch } },
-    ];
-  }
+  const where = buildDocumentWhere(null, queryParams, { ownerId: userId });
 
   const allowedSortFields = ['createdAt', 'title', 'downloadCount', 'fileSize'];
   const finalSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'createdAt';
@@ -680,6 +538,9 @@ const getMyDocuments = async (userId, queryParams) => {
     skip,
     take,
     include: {
+      user: {
+        select: { id: true, fullName: true, avatarUrl: true },
+      },
       subjectRef: {
         select: { id: true, name: true, code: true },
       },
@@ -694,7 +555,7 @@ const getMyDocuments = async (userId, queryParams) => {
 
   const pagination = getPaginationMetadata(total, page, limit);
 
-  return { documents: normalizeDocumentFileNames(documents), pagination };
+  return { documents, pagination };
 };
 
 /**
@@ -717,12 +578,72 @@ const getDocumentVersions = async (userId, userRole, documentId) => {
     throw error;
   }
 
-  const versions = await prisma.documentVersion.findMany({
+  return prisma.documentVersion.findMany({
     where: { documentId },
     orderBy: { version: 'desc' },
   });
+};
 
-  return normalizeDocumentFileNames(versions);
+async function getAuthorizedDocumentVersion(currentUser, documentId, versionId, actionText = 'xem') {
+  const version = await prisma.documentVersion.findFirst({
+    where: {
+      id: versionId,
+      documentId,
+    },
+    include: {
+      document: true,
+    },
+  });
+
+  if (!version) {
+    const error = new Error('Không tìm thấy phiên bản tài liệu');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const document = version.document;
+  if (!document.isPublic && (!currentUser || (document.uploadedBy !== currentUser.id && currentUser.role !== 'ADMIN'))) {
+    const error = new Error(`Bạn không có quyền ${actionText} phiên bản tài liệu này`);
+    error.statusCode = 403;
+    throw error;
+  }
+
+  return version;
+}
+
+const previewDocumentVersion = async (currentUser, documentId, versionId) => {
+  const version = await getAuthorizedDocumentVersion(currentUser, documentId, versionId, 'xem');
+
+  const downloadUrl = storageService.getDownloadUrl(version.fileUrl);
+  const result = {
+    previewUrl: downloadUrl,
+    fileName: version.fileName,
+    mimeType: version.mimeType,
+    version: version.version,
+    localPath: null,
+  };
+
+  // Nếu lưu file local thì trả về đường dẫn thật để controller stream inline trên web,
+  // không dùng res.download vì res.download luôn ép trình duyệt tải file.
+  if (!/^https?:\/\//i.test(version.fileUrl || '') && STORAGE_TYPE.toLowerCase() === 'local') {
+    const filePath = path.join(UPLOAD_PATH, path.basename(version.fileUrl));
+    if (fs.existsSync(filePath)) {
+      result.localPath = filePath;
+    }
+  }
+
+  return result;
+};
+
+const downloadDocumentVersion = async (currentUser, documentId, versionId) => {
+  const version = await getAuthorizedDocumentVersion(currentUser, documentId, versionId, 'tải');
+
+  return {
+    downloadUrl: storageService.getDownloadUrl(version.fileUrl),
+    fileName: version.fileName,
+    mimeType: version.mimeType,
+    version: version.version,
+  };
 };
 
 module.exports = {
@@ -734,4 +655,5 @@ module.exports = {
   downloadDocument,
   getMyDocuments,
   getDocumentVersions,
+  downloadDocumentVersion,
 };

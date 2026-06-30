@@ -191,6 +191,32 @@ router.get('/:id/versions', authMiddleware, documentController.getDocumentVersio
 
 /**
  * @swagger
+ * /api/documents/{id}/versions/{versionId}/download:
+ *   get:
+ *     summary: Tải một phiên bản cụ thể của tài liệu
+ *     tags: [Documents]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: versionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Trả về link tải hoặc file của phiên bản tài liệu
+ */
+router.get('/:id/versions/:versionId/preview', authMiddlewareOptional, documentController.previewDocumentVersion);
+router.get('/:id/versions/:versionId/download', authMiddlewareOptional, documentController.downloadDocumentVersion);
+
+/**
+ * @swagger
  * /api/documents/{id}/download:
  *   get:
  *     summary: Tải tệp tin tài liệu xuống máy (Tự động tăng số lượt tải)
