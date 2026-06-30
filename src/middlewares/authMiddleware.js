@@ -29,7 +29,7 @@ const authMiddleware = async (req, res, next) => {
     req.user = {
       id: user.id,
       email: user.email,
-      role: user.role,
+      role: user.role ? user.role.name : 'GUEST',
     };
 
     next();
@@ -65,7 +65,7 @@ const authMiddlewareOptional = async (req, res, next) => {
       req.user = {
         id: user.id,
         email: user.email,
-        role: user.role,
+        role: user.role ? user.role.name : 'GUEST',
       };
     }
   } catch (error) {

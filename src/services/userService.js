@@ -29,9 +29,13 @@ const getAllUsers = async (queryParams) => {
       id: true,
       email: true,
       fullName: true,
+      phoneNumber: true,
       avatarUrl: true,
-      role: true,
+      major: true,
+      role: { select: { id: true, name: true } },
       isVerified: true,
+      usedStorage: true,
+      storageLimit: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -53,9 +57,13 @@ const getUserById = async (id) => {
       id: true,
       email: true,
       fullName: true,
+      phoneNumber: true,
       avatarUrl: true,
-      role: true,
+      major: true,
+      role: { select: { id: true, name: true } },
       isVerified: true,
+      usedStorage: true,
+      storageLimit: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -73,18 +81,25 @@ const getUserById = async (id) => {
 /**
  * Cập nhật quyền của người dùng (Admin Only)
  */
-const updateUserRole = async (id, role) => {
+const updateUserRole = async (id, roleName) => {
   // Kiểm tra user có tồn tại không
   await getUserById(id);
 
+  const roleRecord = await prisma.role.findUnique({ where: { name: roleName } });
+  if (!roleRecord) {
+    const error = new Error('Role không hợp lệ.');
+    error.statusCode = 400;
+    throw error;
+  }
+
   const updatedUser = await prisma.user.update({
     where: { id },
-    data: { role },
+    data: { roleId: roleRecord.id },
     select: {
       id: true,
       email: true,
       fullName: true,
-      role: true,
+      role: { select: { id: true, name: true } },
     },
   });
 
@@ -107,21 +122,27 @@ const deleteUser = async (id) => {
  * Cập nhật thông tin cá nhân của User hiện tại
  */
 const updateProfile = async (userId, data) => {
-  const { fullName, avatarUrl } = data;
+  const { fullName, phoneNumber, avatarUrl, major } = data;
 
   const updatedUser = await prisma.user.update({
     where: { id: userId },
     data: {
       ...(fullName && { fullName }),
+      ...(phoneNumber !== undefined && { phoneNumber }),
       ...(avatarUrl !== undefined && { avatarUrl }),
+      ...(major !== undefined && { major }),
     },
     select: {
       id: true,
       email: true,
       fullName: true,
+      phoneNumber: true,
       avatarUrl: true,
-      role: true,
+      major: true,
+      role: { select: { id: true, name: true } },
       isVerified: true,
+      usedStorage: true,
+      storageLimit: true,
       createdAt: true,
       updatedAt: true,
     },

@@ -39,6 +39,9 @@ const router = express.Router();
  *               fullName:
  *                 type: string
  *                 example: "Nguyễn Văn B"
+ *               phoneNumber:
+ *                 type: string
+ *                 example: "0912345678"
  *     responses:
  *       201:
  *         description: Đăng ký thành công
@@ -183,6 +186,9 @@ router.get('/me', authMiddleware, authController.getMe);
  *               fullName:
  *                 type: string
  *                 example: "Nguyễn Văn A (Đã Sửa)"
+ *               phoneNumber:
+ *                 type: string
+ *                 example: "0912345678"
  *               avatarUrl:
  *                 type: string
  *                 example: "https://avatar.com/sv.jpg"
@@ -223,5 +229,56 @@ router.put('/update-profile', authMiddleware, validate(updateProfileSchema), aut
  *         description: Sai mật khẩu cũ hoặc không hợp lệ
  */
 router.put('/change-password', authMiddleware, validate(changePasswordSchema), authController.changePassword);
+
+/**
+ * @swagger
+ * /api/auth/verify-email:
+ *   get:
+ *     summary: Xác thực địa chỉ email
+ *     tags: [Authentication]
+ *     parameters:
+ *       - in: query
+ *         name: token
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Token xác thực từ email
+ *     responses:
+ *       200:
+ *         description: Xác thực email thành công
+ *       400:
+ *         description: Token không hợp lệ hoặc đã hết hạn
+ *       500:
+ *         description: Lỗi máy chủ
+ */
+router.get('/verify-email', authController.verifyEmail);
+
+/**
+ * @swagger
+ * /api/auth/resend-verification:
+ *   post:
+ *     summary: Gửi lại email xác thực
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 example: student@gmail.com
+ *     responses:
+ *       200:
+ *         description: Email xác thực đã được gửi lại
+ *       400:
+ *         description: Email đã được xác thực trước đó
+ *       500:
+ *         description: Lỗi máy chủ
+ */
+router.post('/resend-verification', validate(forgotPasswordSchema), authController.resendVerificationEmail);
 
 module.exports = router;
