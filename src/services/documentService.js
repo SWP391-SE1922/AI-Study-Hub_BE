@@ -84,6 +84,17 @@ function buildSubjectCondition({ subjectId, subject }) {
   };
 }
 
+function parseOptionalBoolean(value) {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value === 'boolean') return value;
+
+  const normalized = String(value).trim().toLowerCase();
+  if (['true', '1', 'yes'].includes(normalized)) return true;
+  if (['false', '0', 'no'].includes(normalized)) return false;
+
+  return undefined;
+}
+
 function mergeAndConditions(conditions) {
   const compact = conditions.filter(Boolean);
   if (compact.length === 0) return {};
@@ -91,8 +102,20 @@ function mergeAndConditions(conditions) {
   return { AND: compact };
 }
 
+function ensureDownloadTargetExists(downloadUrl, fileName = 'file') {
+  if (!downloadUrl || /^https?:\/\//i.test(downloadUrl)) return;
+
+  if (!fs.existsSync(downloadUrl)) {
+    const error = new Error(
+      `File gốc "${fileName}" không còn tồn tại trong thư mục uploads của server. Vui lòng upload lại file hoặc kiểm tra đồng bộ file uploads.`
+    );
+    error.statusCode = 404;
+    throw error;
+  }
+}
+
 function buildDocumentWhere(currentUser, queryParams, options = {}) {
-  const { search, categoryId, subject, subjectId, uploadedBy } = queryParams;
+  const { search, categoryId, subject, subjectId, uploadedBy, isPublic } = queryParams;
   const andConditions = [];
 
   if (options.ownerId) {
@@ -107,6 +130,11 @@ function buildDocumentWhere(currentUser, queryParams, options = {}) {
   if (cleanCategoryId) andConditions.push({ categoryId: cleanCategoryId });
 
   andConditions.push(buildSubjectCondition({ subjectId, subject }));
+
+  const publicFilter = parseOptionalBoolean(isPublic);
+  if (typeof publicFilter === 'boolean') {
+    andConditions.push({ isPublic: publicFilter });
+  }
 
   if (uploadedBy && currentUser && currentUser.role === 'ADMIN') {
     andConditions.push({ uploadedBy });
@@ -510,6 +538,7 @@ const downloadDocument = async (currentUser, id) => {
 
   // 3. Lấy đường dẫn tải về
   const downloadUrl = storageService.getDownloadUrl(document.fileUrl);
+  ensureDownloadTargetExists(downloadUrl, document.fileName);
 
   return {
     downloadUrl,
@@ -638,8 +667,11 @@ const previewDocumentVersion = async (currentUser, documentId, versionId) => {
 const downloadDocumentVersion = async (currentUser, documentId, versionId) => {
   const version = await getAuthorizedDocumentVersion(currentUser, documentId, versionId, 'tải');
 
+  const downloadUrl = storageService.getDownloadUrl(version.fileUrl);
+  ensureDownloadTargetExists(downloadUrl, version.fileName);
+
   return {
-    downloadUrl: storageService.getDownloadUrl(version.fileUrl),
+    downloadUrl,
     fileName: version.fileName,
     mimeType: version.mimeType,
     version: version.version,
@@ -655,5 +687,6 @@ module.exports = {
   downloadDocument,
   getMyDocuments,
   getDocumentVersions,
+  previewDocumentVersion,
   downloadDocumentVersion,
 };

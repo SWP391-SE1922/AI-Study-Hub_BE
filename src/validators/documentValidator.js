@@ -38,6 +38,7 @@ const queryDocumentSchema = Joi.object({
   categoryId: Joi.string().uuid().optional(),
   subjectId: Joi.string().uuid().optional(),
   subject: Joi.string().trim().optional(),
+  isPublic: Joi.boolean().optional(),
   uploadedBy: Joi.string().uuid().optional(),
   sortBy: Joi.string()
     .valid('createdAt', 'title', 'downloadCount', 'fileSize')
