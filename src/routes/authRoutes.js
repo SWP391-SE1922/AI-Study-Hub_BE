@@ -82,6 +82,38 @@ router.post('/register', validate(registerSchema), authController.register);
  */
 router.post('/login', validate(loginSchema), authController.login);
 
+// ==========================================
+// ĐƯỜNG DẪN XỬ LÝ ĐĂNG NHẬP GOOGLE TẠI ĐÂY
+// ==========================================
+/**
+ * @swagger
+ * /api/auth/google:
+ *   post:
+ *     summary: Đăng nhập hoặc Đăng ký tự động qua tài khoản Google
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - idToken
+ *             properties:
+ *               idToken:
+ *                 type: string
+ *                 description: Chuỗi mã xác thực nhận về từ Google SDK ở Frontend
+ *                 example: "eyJhbGciOiJSUzI1NiIsImtpZCI6..."
+ *     responses:
+ *       200:
+ *         description: Đăng nhập Google thành công. Trả về JWT hệ thống.
+ *       400:
+ *         description: Thiếu mã xác thực Google (idToken)
+ *       401:
+ *         description: Mã token Google không hợp lệ hoặc đã hết hạn
+ */
+router.post('/google', authController.loginGoogle);
+
 /**
  * @swagger
  * /api/auth/logout:
