@@ -4,7 +4,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const { sendSuccess } = require('../utils/response');
 
 /**
- * Đăng ký tài khoản
+ * Đăng ký tài khoản (Giữ nguyên)
  */
 const register = asyncHandler(async (req, res) => {
   const { email, password, fullName } = req.body;
@@ -13,7 +13,7 @@ const register = asyncHandler(async (req, res) => {
 });
 
 /**
- * Đăng nhập
+ * Đăng nhập (Giữ nguyên)
  */
 const login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
@@ -22,19 +22,14 @@ const login = asyncHandler(async (req, res) => {
 });
 
 /**
- * Đăng xuất
- * 
- * NOTE: Vì chúng ta thiết kế cơ chế JWT Stateless (Không lưu trạng thái ở server),
- * token không thể bị vô hiệu hóa phía server trừ khi triển khai blacklist hoặc redis.
- * Ở phạm vi bài viết này, logout chỉ cần phản hồi thành công và phía client (Trình duyệt/Mobile)
- * tự động xóa token khỏi LocalStorage/Cookies để kết thúc phiên đăng nhập. Điều này giảm tải cho server.
+ * Đăng xuất (Giữ nguyên)
  */
 const logout = asyncHandler(async (req, res) => {
   return sendSuccess(res, 'Đăng xuất thành công', null, null, 200);
 });
 
 /**
- * Quên mật khẩu
+ * Quên mật khẩu (Giữ nguyên)
  */
 const forgotPassword = asyncHandler(async (req, res) => {
   const { email } = req.body;
@@ -43,7 +38,7 @@ const forgotPassword = asyncHandler(async (req, res) => {
 });
 
 /**
- * Đặt lại mật khẩu mới
+ * Đặt lại mật khẩu mới (Giữ nguyên)
  */
 const resetPassword = asyncHandler(async (req, res) => {
   const { token, newPassword } = req.body;
@@ -52,7 +47,7 @@ const resetPassword = asyncHandler(async (req, res) => {
 });
 
 /**
- * Lấy thông tin cá nhân hiện tại
+ * Lấy thông tin cá nhân hiện tại (Giữ nguyên)
  */
 const getMe = asyncHandler(async (req, res) => {
   const user = await userService.getUserById(req.user.id);
@@ -60,7 +55,7 @@ const getMe = asyncHandler(async (req, res) => {
 });
 
 /**
- * Cập nhật hồ sơ cá nhân (Không cho sửa email, password, role ở đây)
+ * Cập nhật hồ sơ cá nhân (Giữ nguyên)
  */
 const updateProfile = asyncHandler(async (req, res) => {
   const { fullName, avatarUrl } = req.body;
@@ -69,7 +64,7 @@ const updateProfile = asyncHandler(async (req, res) => {
 });
 
 /**
- * Đổi mật khẩu
+ * Đổi mật khẩu (Giữ nguyên)
  */
 const changePassword = asyncHandler(async (req, res) => {
   const { currentPassword, newPassword } = req.body;
@@ -78,7 +73,7 @@ const changePassword = asyncHandler(async (req, res) => {
 });
 
 /**
- * Xác thực email
+ * Xác thực email (Giữ nguyên)
  */
 const verifyEmail = asyncHandler(async (req, res) => {
   const { token } = req.query;
@@ -92,12 +87,28 @@ const verifyEmail = asyncHandler(async (req, res) => {
 });
 
 /**
- * Gửi lại email xác thực
+ * Gửi lại email xác thực (Giữ nguyên)
  */
 const resendVerificationEmail = asyncHandler(async (req, res) => {
   const { email } = req.body;
   const result = await authService.resendVerificationEmail(email);
   return sendSuccess(res, result?.message || 'Đã xử lý yêu cầu gửi lại email xác thực', { emailSent: result?.emailSent ?? null }, null, 200);
+});
+
+// ==========================================
+// THÊM XỬ LÝ GOOGLE LOGIN TẠI ĐÂY
+// ==========================================
+/**
+ * Đăng nhập bằng Google Account
+ */
+const loginGoogle = asyncHandler(async (req, res) => {
+  const { idToken } = req.body;
+  
+  // Gọi xuống Service xử lý verify & kiểm tra DB
+  const result = await authService.loginGoogle(idToken);
+  
+  // Trả về response theo đúng format sendSuccess của dự án
+  return sendSuccess(res, 'Đăng nhập Google thành công', result, null, 200);
 });
 
 module.exports = {
@@ -111,4 +122,5 @@ module.exports = {
   changePassword,
   verifyEmail,
   resendVerificationEmail,
+  loginGoogle, // <-- Đừng quên export ở đây nha
 };

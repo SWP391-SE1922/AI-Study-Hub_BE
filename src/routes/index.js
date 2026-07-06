@@ -8,6 +8,7 @@ const dashboardRoutes = require('./dashboardRoutes');
 const profileRoutes = require('./profileRoutes');
 const subjectRoutes = require('./subjectRoutes');
 const aiRoutes = require('./aiRoutes');
+const vnpayRoutes = require('./vnpayRoutes');
 
 const router = express.Router();
 
@@ -21,5 +22,6 @@ router.use('/dashboard', dashboardRoutes);
 router.use('/profile', profileRoutes);
 router.use('/subjects', subjectRoutes);
 router.use('/ai', aiRoutes);
+router.use('/vnpay', vnpayRoutes);
 
 module.exports = router;
