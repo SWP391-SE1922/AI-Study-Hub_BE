@@ -26,20 +26,8 @@ const deleteFolder = asyncHandler(async (req, res) => {
   return sendSuccess(res, 'Xóa thư mục thành công', null, null, 200);
 });
 
-/**
- * Lấy nội dung thư mục theo URL param (RESTful: GET /folders/:id/contents)
- * :id = 'root' để lấy thư mục gốc
- */
-const getFolderContents = asyncHandler(async (req, res) => {
-  const folderId = req.params.id;
-  const resources = await folderService.getFolderContents(req.user.id, folderId);
-  return sendSuccess(res, 'Lấy tài nguyên thành công', resources, null, 200);
-});
-
 module.exports = {
   createFolder,
   getResources,
-  getFolderContents,
   deleteFolder,
 };
-

@@ -11,15 +11,15 @@ const options = {
       description: 'API Documentation for AI Management System Backend',
     },
     servers: [
-      {
-        url: process.env.BASE_URL || 'https://xxxx-xx-xx.ngrok-free.app',
-        description: 'Ngrok Server (Cấu hình BASE_URL trong .env)',
-      },
-      {
-        url: `http://localhost:${port}`,
-        description: 'Local Server',
-      },
-    ],
+  {
+    url: "http://localhost:3636",
+    description: "Local server",
+  },
+  {
+    url: "https://unministerially-rushiest-tarah.ngrok-free.dev",
+    description: "Ngrok server",
+  },
+],
     components: {
       securitySchemes: {
         bearerAuth: {

@@ -1,7 +1,7 @@
 const STORAGE_LIMITS = {
-  BASIC: 100 * 1024 * 1024, // 100MB
-  PREMIUM: 1024 * 1024 * 1024, // 1GB
-  VIP: 10 * 1024 * 1024 * 1024, // 10GB
+  BASIC: 5 * 1024 * 1024 * 1024, // 5GB
+  PREMIUM: 10 * 1024 * 1024 * 1024, // 10GB
+  VIP: 20 * 1024 * 1024 * 1024, // 20GB
 };
 
 module.exports = {

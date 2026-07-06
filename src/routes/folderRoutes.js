@@ -59,33 +59,9 @@ router.delete('/folders/:id', folderController.deleteFolder);
 
 /**
  * @swagger
- * /api/folders/{id}/contents:
- *   get:
- *     summary: Lấy danh sách thư mục con và files bên trong thư mục (RESTful)
- *     tags: [Folders]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *         description: ID của thư mục, hoặc 'root' để lấy thư mục ngoài cùng
- *         example: root
- *     responses:
- *       200:
- *         description: Lấy thành công
- *       404:
- *         description: Thư mục không tồn tại
- */
-router.get('/folders/:id/contents', folderController.getFolderContents);
-
-/**
- * @swagger
  * /api/resources:
  *   get:
- *     summary: "[Deprecated] Lấy tài nguyên trong thư mục (dùng /folders/:id/contents thay thế)"
+ *     summary: Lấy danh sách thư mục con và files bên trong thư mục hiện tại
  *     tags: [Folders]
  *     security:
  *       - bearerAuth: []
@@ -102,4 +78,3 @@ router.get('/folders/:id/contents', folderController.getFolderContents);
 router.get('/resources', folderController.getResources);
 
 module.exports = router;
-

@@ -122,42 +122,5 @@ const deleteFolder = async (userId, folderId) => {
 module.exports = {
   createFolder,
   getResources,
-  getFolderContents,
   deleteFolder,
 };
-
-/**
- * Lấy nội dung bên trong một thư mục qua URL parameter (RESTful: GET /folders/:id/contents)
- * id = 'root' => thư mục gốc
- */
-async function getFolderContents(userId, folderId) {
-  const resolvedId = (folderId === 'root' || !folderId) ? null : folderId;
-
-  if (resolvedId) {
-    const parentFolder = await prisma.folder.findFirst({
-      where: { id: resolvedId, userId },
-    });
-    if (!parentFolder) {
-      const error = new Error('Thư mục không tồn tại hoặc không thuộc quyền sở hữu của bạn.');
-      error.statusCode = 404;
-      throw error;
-    }
-  }
-
-  const folders = await prisma.folder.findMany({
-    where: { parentId: resolvedId, userId },
-    orderBy: { createdAt: 'desc' },
-  });
-
-  const files = await prisma.document.findMany({
-    where: { folderId: resolvedId, uploadedBy: userId },
-    orderBy: { createdAt: 'desc' },
-    include: {
-      subject: { select: { id: true, name: true } },
-      category: { select: { id: true, name: true } },
-    },
-  });
-
-  return { folderId: resolvedId, folders, files };
-}
-

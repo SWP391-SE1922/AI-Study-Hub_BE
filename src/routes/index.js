@@ -4,8 +4,10 @@ const userRoutes = require('./userRoutes');
 const categoryRoutes = require('./categoryRoutes');
 const documentRoutes = require('./documentRoutes');
 const folderRoutes = require('./folderRoutes');
-const chatRoutes = require('./chatRoutes');
+const dashboardRoutes = require('./dashboardRoutes');
+const profileRoutes = require('./profileRoutes');
 const subjectRoutes = require('./subjectRoutes');
+const aiRoutes = require('./aiRoutes');
 
 const router = express.Router();
 
@@ -14,8 +16,10 @@ router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
 router.use('/categories', categoryRoutes);
 router.use('/documents', documentRoutes);
-router.use('/chat', chatRoutes);
-router.use('/subjects', subjectRoutes);
 router.use('/', folderRoutes); // Mount tại root của /api vì route bên trong đã ghi rõ /folders và /resources
+router.use('/dashboard', dashboardRoutes);
+router.use('/profile', profileRoutes);
+router.use('/subjects', subjectRoutes);
+router.use('/ai', aiRoutes);
 
 module.exports = router;

@@ -1,150 +1,139 @@
-const fs = require('fs');
-const path = require('path');
-const { Ollama: OllamaClient } = require('ollama'); // Raw SDK để lấy danh sách model
-const { Ollama, OllamaEmbeddings } = require('@langchain/ollama');
-const { RecursiveCharacterTextSplitter } = require('@langchain/textsplitters');
+const prisma = require('../config/database');
 
-const OLLAMA_HOST = process.env.Ollama_URL || 'http://localhost:11434';
-const ollamaClientInstance = new OllamaClient({ host: OLLAMA_HOST });
-const CACHE_DIR = path.join(__dirname, '../../uploads/vector_store');
-
-// Đảm bảo thư mục cache tồn tại
-if (!fs.existsSync(CACHE_DIR)) {
-  fs.mkdirSync(CACHE_DIR, { recursive: true });
+function buildTitle(message) {
+  const clean = String(message || '').trim().replace(/\s+/g, ' ');
+  if (!clean) return 'Cuộc trò chuyện mới';
+  return clean.length > 50 ? `${clean.slice(0, 50)}...` : clean;
 }
 
-// Lấy model có sẵn trong Ollama
-const getAvailableModel = async () => {
-  try {
-    const response = await ollamaClientInstance.list();
-    if (!response.models || response.models.length === 0) {
-      throw new Error('Chưa có model nào được cài đặt trong Ollama. Vui lòng chạy lệnh: ollama run llama3');
-    }
-    const defaultModel = process.env.OLLAMA_MODEL || response.models[0].name;
-    return defaultModel;
-  } catch (error) {
-    console.error('Không thể kết nối với Ollama:', error.message);
-    throw new Error('Hệ thống AI hiện đang không khả dụng (Lỗi kết nối Ollama).');
+function localReply(message) {
+  const text = String(message || '').trim();
+  const lower = text.toLowerCase();
+
+  if (!text) {
+    return 'Bạn hãy nhập nội dung cần hỏi, mình sẽ hỗ trợ theo dữ liệu hiện có của hệ thống.';
   }
-};
 
-/**
- * Phân tích câu hỏi để lấy từ khóa hoặc nhận dạng câu chào
- */
-const extractSearchKeyword = async (userMessage) => {
-  const model = await getAvailableModel();
-  
-  const prompt = `
-Bạn là một trợ lý ảo phân tích ý định của người dùng.
-- Nếu câu của người dùng là một lời chào hỏi thông thường (như "xin chào", "hello", "hi"), HÃY TRẢ VỀ CHỮ "GREETING".
-- Nếu người dùng muốn hỏi về tài liệu, nhiệm vụ của bạn là lấy ra TÊN MÔN HỌC hoặc TÊN TÀI LIỆU. HÃY TRẢ VỀ TỪ KHÓA ĐÓ.
-- Nếu không tìm thấy hoặc câu hỏi không rõ ràng, HÃY TRẢ VỀ CHỮ "NULL".
-TUYỆT ĐỐI CHỈ TRẢ VỀ 1 TRONG 3 KẾT QUẢ TRÊN, KHÔNG TRẢ LỜI THÊM BẤT KỲ CHỮ NÀO KHÁC.
+  if (lower.includes('jwt')) {
+    return 'JWT là token dùng để xác thực đăng nhập. Sau khi đăng nhập, backend trả token cho frontend. Frontend gửi token đó trong header Authorization: Bearer <token> để gọi các API cần đăng nhập.';
+  }
 
-Câu của người dùng: "${userMessage}"
-Kết quả:`;
+  if (lower.includes('upload') || lower.includes('tải tài liệu') || lower.includes('tai tai lieu')) {
+    return 'Để upload tài liệu: vào mục Tài liệu, bấm Upload tài liệu, chọn file, nhập tiêu đề, mô tả và phân loại. File sẽ được gửi lên backend qua API /api/documents.';
+  }
 
-  const response = await ollamaClientInstance.generate({
-    model: model,
-    prompt: prompt,
-    stream: false,
-    options: { temperature: 0.1 }
+  if (lower.includes('api')) {
+    return 'Frontend không kết nối trực tiếp database. Luồng đúng là FE gọi API backend, backend mới truy vấn SQL Server/Prisma và trả dữ liệu về cho FE.';
+  }
+
+  if (lower.includes('cloudinary')) {
+    return 'Cloudinary được xử lý ở backend. Frontend chỉ gửi file lên API backend, backend sẽ upload file lên Cloudinary nếu đã cấu hình CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY và CLOUDINARY_API_SECRET.';
+  }
+
+  return `Mình đã nhận câu hỏi: "${text}". Hiện chat này chạy bằng phản hồi nội bộ không dùng OpenAI API, nên không cần OPENAI_API_KEY. Bạn có thể dùng để kiểm tra giao diện chat, lưu lịch sử và luồng API.`;
+}
+
+async function ensureOwnedSession(userId, sessionId) {
+  const session = await prisma.chatSession.findFirst({
+    where: { id: sessionId, userId },
   });
 
-  const keyword = response.response.trim();
-  if (keyword.toUpperCase() === 'NULL' || keyword === '') {
-    return null;
+  if (!session) {
+    const error = new Error('Không tìm thấy cuộc trò chuyện hoặc bạn không có quyền truy cập.');
+    error.statusCode = 404;
+    throw error;
   }
-  return keyword.replace(/^["']|["']$/g, '');
-};
 
-// Tính Cosine Similarity
-const cosineSimilarity = (vecA, vecB) => {
-  let dotProduct = 0, normA = 0, normB = 0;
-  for (let i = 0; i < vecA.length; i++) {
-    dotProduct += vecA[i] * vecB[i];
-    normA += vecA[i] * vecA[i];
-    normB += vecB[i] * vecB[i];
-  }
-  if (normA === 0 || normB === 0) return 0;
-  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
-};
+  return session;
+}
 
-/**
- * Trả lời câu hỏi của người dùng dựa trên RAG (Chunking + Vector Search)
- */
-const answerQuestionWithRAG = async (documentId, documentContext, userMessage) => {
-  const modelName = await getAvailableModel();
-  
-  // 1. Khởi tạo Embeddings Model (bắt buộc máy phải cài nomic-embed-text)
-  const embeddings = new OllamaEmbeddings({
-    model: "nomic-embed-text",
-    baseUrl: OLLAMA_HOST,
+const createChatSession = async (userId, title = 'Cuộc trò chuyện mới') => {
+  return prisma.chatSession.create({
+    data: {
+      userId,
+      title: title || 'Cuộc trò chuyện mới',
+    },
   });
+};
 
-  const cacheFile = path.join(CACHE_DIR, `${documentId}.json`);
-  let memoryVectors = [];
+const getUserChatSessions = async (userId) => {
+  return prisma.chatSession.findMany({
+    where: { userId },
+    include: {
+      messages: {
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+      },
+    },
+    orderBy: { updatedAt: 'desc' },
+  });
+};
 
-  // 2. Kiểm tra Cache Vector Store
-  if (fs.existsSync(cacheFile)) {
-    console.log(`[RAG] Đang tải Vector từ cache cho tài liệu ${documentId}...`);
-    memoryVectors = JSON.parse(fs.readFileSync(cacheFile, 'utf-8'));
+const getSessionMessages = async (userId, sessionId) => {
+  await ensureOwnedSession(userId, sessionId);
+
+  return prisma.chatMessage.findMany({
+    where: { sessionId },
+    orderBy: { createdAt: 'asc' },
+  });
+};
+
+const chat = async (userId, sessionId, message) => {
+  const cleanMessage = String(message || '').trim();
+  if (!cleanMessage) {
+    const error = new Error('Tin nhắn không được để trống.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  let session;
+  if (sessionId) {
+    session = await ensureOwnedSession(userId, sessionId);
   } else {
-    console.log(`[RAG] Chưa có cache. Đang xử lý Chunking và Embedding cho tài liệu ${documentId}...`);
-    
-    const splitter = new RecursiveCharacterTextSplitter({
-      chunkSize: 1000,
-      chunkOverlap: 200,
-    });
-    
-    const chunks = await splitter.createDocuments([documentContext]);
-    
-    // Tạo Vector Store thủ công
-    for (const chunk of chunks) {
-      const vector = await embeddings.embedQuery(chunk.pageContent);
-      memoryVectors.push({ content: chunk.pageContent, vector });
-    }
-    
-    // Lưu lại cache
-    fs.writeFileSync(cacheFile, JSON.stringify(memoryVectors));
-    console.log(`[RAG] Đã lưu cache thành công tại ${cacheFile}.`);
+    session = await createChatSession(userId, buildTitle(cleanMessage));
   }
 
-  // 3. Tìm kiếm Vector: Lấy 3 đoạn văn (chunks) liên quan nhất đến câu hỏi
-  const queryVector = await embeddings.embedQuery(userMessage);
-  
-  const scoredChunks = memoryVectors.map(v => ({
-    content: v.content,
-    score: cosineSimilarity(queryVector, v.vector)
-  }));
-  
-  scoredChunks.sort((a, b) => b.score - a.score);
-  const contextChunks = scoredChunks.slice(0, 3).map(doc => doc.content).join('\n\n---\n\n');
-
-  // 4. Gọi LLM sinh câu trả lời
-  const llm = new Ollama({
-    baseUrl: OLLAMA_HOST,
-    model: modelName,
+  const userMessage = await prisma.chatMessage.create({
+    data: {
+      sessionId: session.id,
+      role: 'user',
+      content: cleanMessage,
+    },
   });
 
-  const prompt = `Bạn là một trợ lý học tập AI thông minh của AI Study Hub.
-Dưới đây là một số đoạn trích xuất từ tài liệu do hệ thống tìm được (đã lọc các phần liên quan). 
-Hãy sử dụng DUY NHẤT thông tin từ các đoạn trích này để trả lời câu hỏi của người dùng.
-Nếu câu hỏi nằm ngoài phạm vi đoạn trích, hãy nói rằng tài liệu không đề cập đến vấn đề này.
+  const assistantMessage = await prisma.chatMessage.create({
+    data: {
+      sessionId: session.id,
+      role: 'assistant',
+      content: localReply(cleanMessage),
+    },
+  });
 
---- CÁC ĐOẠN TRÍCH TỪ TÀI LIỆU ---
-${contextChunks}
+  const updatedSession = await prisma.chatSession.update({
+    where: { id: session.id },
+    data: {
+      updatedAt: new Date(),
+      title: session.title || buildTitle(cleanMessage),
+    },
+  });
 
---- CÂU HỎI CỦA NGƯỜI DÙNG ---
-${userMessage}
+  return {
+    session: updatedSession,
+    messages: [userMessage, assistantMessage],
+    reply: assistantMessage.content,
+  };
+};
 
-Câu trả lời của bạn:`;
-
-  const response = await llm.invoke(prompt);
-  return response.trim();
+const deleteChatSession = async (userId, sessionId) => {
+  await ensureOwnedSession(userId, sessionId);
+  await prisma.chatSession.delete({ where: { id: sessionId } });
+  return true;
 };
 
 module.exports = {
-  extractSearchKeyword,
-  answerQuestionWithRAG,
+  createChatSession,
+  getUserChatSessions,
+  getSessionMessages,
+  chat,
+  deleteChatSession,
 };

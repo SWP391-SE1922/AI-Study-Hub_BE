@@ -19,15 +19,25 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 // 1. Middlewares bảo mật & ghi log
-app.use(helmet({
-  crossOriginResourcePolicy: false, // Cho phép truy cập file tĩnh từ nguồn khác
-}));
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
-}));
+app.use(
+  helmet({
+    crossOriginResourcePolicy: false,
+  })
+);
+
+app.use(
+  cors({
+    origin: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'ngrok-skip-browser-warning',
+    ],
+    credentials: true,
+  })
+);
+
 app.use(morgan('dev'));
 
 // 2. Parsers
@@ -41,26 +51,30 @@ app.use('/uploads', express.static(uploadDir));
 const swaggerUiOptions = {
   swaggerOptions: {
     requestInterceptor: (req) => {
-      // Tự động thêm header này để bỏ qua trang cảnh báo của Ngrok (Ngrok Free Tier)
       req.headers['ngrok-skip-browser-warning'] = 'true';
       return req;
-    }
-  }
+    },
+  },
 };
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, swaggerUiOptions));
+
+app.use(
+  '/api-docs',
+  swaggerUi.serve,
+  swaggerUi.setup(swaggerSpec, swaggerUiOptions)
+);
 
 // 5. Mount Routes
 app.use('/api', routes);
 
 // 6. Xử lý Route 404 Not Found
-app.use((req, res, next) => {
+app.use((req, res) => {
   res.status(404).json({
     success: false,
-    message: `API Route không tồn tại: ${req.method} ${req.originalUrl}`
+    message: `API Route không tồn tại: ${req.method} ${req.originalUrl}`,
   });
 });
 
-// 7. Global Error Handler Middleware (đặt CUỐI CÙNG)
+// 7. Global Error Handler Middleware
 app.use(errorMiddleware);
 
 module.exports = app;

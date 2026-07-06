@@ -8,58 +8,37 @@ generator client {
 }
 
 model User {
-  id                  String    @id @default(uuid())
-  email               String    @unique
+  id                  String        @id @default(uuid())
+  email               String        @unique
   password            String
   fullName            String
-  phoneNumber         String?
   avatarUrl           String?
-  major               String?   // Chuyên ngành (dành cho sinh viên)
-  roleId              String?
-  role                Role?     @relation(fields: [roleId], references: [id], onDelete: SetNull)
-  isVerified          Boolean   @default(false)
+  role                String        @default("USER") // GUEST, USER, ADMIN
+  isVerified          Boolean       @default(false)
   verifyEmailToken    String?
   verifyEmailExpire   DateTime?
   resetPasswordToken  String?
   resetPasswordExpire DateTime?
-  usedStorage         Float     @default(0) // Dung lượng đã dùng (Bytes)
-  storageLimit        Float     // Giới hạn dung lượng (Bytes)
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  usedStorage         Float         @default(0) // Dung lượng đã dùng (Bytes)
+  storageLimit        Float         @default(5368709120) // Giới hạn dung lượng (Bytes) - mặc định 5GB
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
   documents           Document[]
   folders             Folder[]
-  chatMessages        ChatMessage[]
-  subjects            Subject[]  @relation("TeacherSubjects")
+  subjects            Subject[]
+  ChatSession         ChatSession[]
 
   @@map("users")
 }
 
-model Role {
-  id    String @id @default(uuid())
-  name  String @unique // "USER", "ADMIN", "TEACHER", "GUEST"
-  users User[]
-
-  @@map("roles")
-}
-
-model Subject {
-  id          String     @id @default(uuid())
-  name        String     @unique
-  description String?
-  teacherId   String?
-  teacher     User?      @relation("TeacherSubjects", fields: [teacherId], references: [id], onDelete: SetNull)
-  documents   Document[]
-
-  @@map("subjects")
-}
-
 model Category {
-  id          String     @id @default(uuid())
-  name        String     @unique
+  id          String   @id @default(uuid())
+  name        String   @unique
   description String?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  documents   Document[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  documents Document[]
 
   @@map("categories")
 }
@@ -80,43 +59,92 @@ model Folder {
   @@map("folders")
 }
 
+model Subject {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  code        String?  @unique
+  description String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  creator   User?      @relation(fields: [createdBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  documents Document[]
+
+  @@map("subjects")
+}
+
 model Document {
-  id            String    @id @default(uuid())
-  title         String
-  description   String?
-  subjectId     String?
-  fileUrl       String
-  fileName      String
-  fileSize      Int
-  mimeType      String
-  uploadedBy    String
-  categoryId    String?
-  folderId      String?
-  isPublic      Boolean   @default(true)
-  status        String    @default("PROCESSING")
-  downloadCount Int       @default(0)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  user          User      @relation(fields: [uploadedBy], references: [id], onDelete: Cascade)
-  category      Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  folder        Folder?   @relation(fields: [folderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  subject       Subject?  @relation(fields: [subjectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  chatMessages  ChatMessage[]
+  id             String  @id @default(uuid())
+  title          String
+  description    String?
+  contentPreview String? @db.NVarChar(Max)
+
+  subject   String?
+  subjectId String?
+
+  fileUrl        String
+  fileName       String
+  fileSize       Int
+  mimeType       String
+  uploadedBy     String
+  categoryId     String?
+  folderId       String?
+  isPublic       Boolean  @default(true)
+  downloadCount  Int      @default(0)
+  currentVersion Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user       User              @relation(fields: [uploadedBy], references: [id], onDelete: Cascade)
+  category   Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  folder     Folder?           @relation(fields: [folderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  subjectRef Subject?          @relation(fields: [subjectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  versions   DocumentVersion[]
 
   @@map("documents")
 }
 
-model ChatMessage {
-  id         String   @id @default(uuid())
-  sessionId  String?
-  userId     String?
-  question   String
-  answer     String
-  documentId String?
+model DocumentVersion {
+  id         String @id @default(uuid())
+  documentId String
+
+  version Int
+
+  fileUrl  String
+  fileName String
+  fileSize Int
+  mimeType String
+
+  uploadedBy String
   createdAt  DateTime @default(now())
 
-  user       User?     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  document   Document? @relation(fields: [documentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("document_versions")
+}
+
+model ChatSession {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  sessionId String
+  role      String // user | assistant
+  content   String   @db.NVarChar(Max)
+  createdAt DateTime @default(now())
+
+  session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@map("chat_messages")
 }

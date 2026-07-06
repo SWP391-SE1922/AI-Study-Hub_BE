@@ -7,8 +7,8 @@ const { sendSuccess } = require('../utils/response');
  * Đăng ký tài khoản
  */
 const register = asyncHandler(async (req, res) => {
-  const { email, password, fullName, phoneNumber, major } = req.body;
-  const result = await authService.register(email, password, fullName, phoneNumber, major);
+  const { email, password, fullName } = req.body;
+  const result = await authService.register(email, password, fullName);
   return sendSuccess(res, 'Đăng ký tài khoản thành công', result, null, 201);
 });
 
@@ -38,8 +38,8 @@ const logout = asyncHandler(async (req, res) => {
  */
 const forgotPassword = asyncHandler(async (req, res) => {
   const { email } = req.body;
-  await authService.forgotPassword(email);
-  return sendSuccess(res, 'Email hướng dẫn đặt lại mật khẩu đã được gửi', null, null, 200);
+  const result = await authService.forgotPassword(email);
+  return sendSuccess(res, result?.message || 'Đã xử lý yêu cầu quên mật khẩu', { emailSent: result?.emailSent ?? null }, null, 200);
 });
 
 /**
@@ -63,8 +63,8 @@ const getMe = asyncHandler(async (req, res) => {
  * Cập nhật hồ sơ cá nhân (Không cho sửa email, password, role ở đây)
  */
 const updateProfile = asyncHandler(async (req, res) => {
-  const { fullName, phoneNumber, avatarUrl } = req.body;
-  const updatedUser = await userService.updateProfile(req.user.id, { fullName, phoneNumber, avatarUrl });
+  const { fullName, avatarUrl } = req.body;
+  const updatedUser = await userService.updateProfile(req.user.id, { fullName, avatarUrl });
   return sendSuccess(res, 'Cập nhật hồ sơ cá nhân thành công', { user: updatedUser }, null, 200);
 });
 
@@ -96,8 +96,8 @@ const verifyEmail = asyncHandler(async (req, res) => {
  */
 const resendVerificationEmail = asyncHandler(async (req, res) => {
   const { email } = req.body;
-  await authService.resendVerificationEmail(email);
-  return sendSuccess(res, 'Email xác thực đã được gửi lại', null, null, 200);
+  const result = await authService.resendVerificationEmail(email);
+  return sendSuccess(res, result?.message || 'Đã xử lý yêu cầu gửi lại email xác thực', { emailSent: result?.emailSent ?? null }, null, 200);
 });
 
 module.exports = {

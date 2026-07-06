@@ -6,8 +6,9 @@ const createDocumentSchema = Joi.object({
     'any.required': 'Tiêu đề tài liệu là bắt buộc',
   }),
   description: Joi.string().trim().allow('', null).optional(),
+  subject: Joi.string().trim().allow('', null).optional(),
   subjectId: Joi.string().uuid().allow('', null).optional().messages({
-    'string.uuid': 'Mã bộ môn không đúng định dạng UUID',
+    'string.uuid': 'Mã môn học không đúng định dạng UUID',
   }),
   categoryId: Joi.string().uuid().allow('', null).optional().messages({
     'string.uuid': 'Mã danh mục không đúng định dạng UUID',
@@ -19,8 +20,9 @@ const createDocumentSchema = Joi.object({
 const updateDocumentSchema = Joi.object({
   title: Joi.string().trim().optional(),
   description: Joi.string().trim().allow('', null).optional(),
+  subject: Joi.string().trim().allow('', null).optional(),
   subjectId: Joi.string().uuid().allow('', null).optional().messages({
-    'string.uuid': 'Mã bộ môn không đúng định dạng UUID',
+    'string.uuid': 'Mã môn học không đúng định dạng UUID',
   }),
   categoryId: Joi.string().uuid().allow('', null).optional().messages({
     'string.uuid': 'Mã danh mục không đúng định dạng UUID',
@@ -35,10 +37,16 @@ const queryDocumentSchema = Joi.object({
   search: Joi.string().trim().allow('', null).optional(),
   categoryId: Joi.string().uuid().optional(),
   subjectId: Joi.string().uuid().optional(),
+  subject: Joi.string().trim().optional(),
+  isPublic: Joi.boolean().optional(),
   uploadedBy: Joi.string().uuid().optional(),
-  sortBy: Joi.string().valid('createdAt', 'title', 'downloadCount', 'fileSize').default('createdAt').messages({
-    'any.only': 'Trường sắp xếp phải thuộc một trong các giá trị: createdAt, title, downloadCount, fileSize',
-  }),
+  sortBy: Joi.string()
+    .valid('createdAt', 'title', 'downloadCount', 'fileSize')
+    .default('createdAt')
+    .messages({
+      'any.only':
+        'Trường sắp xếp phải thuộc một trong các giá trị: createdAt, title, downloadCount, fileSize',
+    }),
   sortOrder: Joi.string().valid('asc', 'desc').default('desc'),
 });
 
