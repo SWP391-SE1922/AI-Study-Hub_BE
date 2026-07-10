@@ -31,3 +31,5 @@ async function startServer() {
 }
 
 startServer();
+// Force reload Prisma client
+
