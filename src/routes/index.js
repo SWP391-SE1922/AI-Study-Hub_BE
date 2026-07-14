@@ -9,6 +9,9 @@ const profileRoutes = require('./profileRoutes');
 const subjectRoutes = require('./subjectRoutes');
 const aiRoutes = require('./aiRoutes');
 const vnpayRoutes = require('./vnpayRoutes');
+const momoRoutes = require('./momoRoutes');
+const payosRoutes = require('./payosRoutes');
+const transactionRoutes = require('./transactionRoutes');
 
 const router = express.Router();
 
@@ -23,5 +26,8 @@ router.use('/profile', profileRoutes);
 router.use('/subjects', subjectRoutes);
 router.use('/ai', aiRoutes);
 router.use('/vnpay', vnpayRoutes);
+router.use('/momo', momoRoutes);
+router.use('/payos', payosRoutes);
+router.use('/transactions', transactionRoutes);
 
 module.exports = router;

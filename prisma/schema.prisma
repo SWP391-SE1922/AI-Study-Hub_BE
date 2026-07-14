@@ -19,6 +19,8 @@ model User {
   verifyEmailExpire   DateTime?
   resetPasswordToken  String?
   resetPasswordExpire DateTime?
+  isLocked            Boolean       @default(false)
+  lockedUntil         DateTime?
   usedStorage         Float         @default(0) // Dung lượng đã dùng (Bytes)
   storageLimit        Float         @default(5368709120) // Giới hạn dung lượng (Bytes) - mặc định 5GB
   createdAt           DateTime      @default(now())
@@ -27,6 +29,7 @@ model User {
   folders             Folder[]
   subjects            Subject[]
   ChatSession         ChatSession[]
+  transactions        Transaction[]
 
   @@map("users")
 }
@@ -148,3 +151,24 @@ model ChatMessage {
 
   @@map("chat_messages")
 }
+
+model Transaction {
+  id                    String    @id @default(uuid())
+  userId                String
+  amount                Float
+  status                String    @default("PENDING") // "SUCCESS", "FAILED", "PENDING"
+  paymentMethod         String    // "VNPAY", "MOMO", "PAYOS"
+  orderCode             String
+  providerTransactionId String?
+  description           String?
+  paidAt                 DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([paymentMethod, orderCode])
+  @@index([userId, createdAt])
+  @@map("transactions")
+}
+

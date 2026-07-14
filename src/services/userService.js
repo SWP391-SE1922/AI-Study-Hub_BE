@@ -151,6 +151,57 @@ const deleteUser = async (id, currentUserId) => {
 };
 
 /**
+ * Khóa hoặc mở khóa người dùng (Admin Only)
+ */
+const lockUser = async (id, duration) => {
+  const user = await getUserById(id);
+
+  if (user.role === 'ADMIN') {
+    const error = new Error('Không thể khóa tài khoản admin.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  let lockedUntil = null;
+  let isLocked = false;
+
+  if (duration === '3d') {
+    isLocked = true;
+    lockedUntil = new Date();
+    lockedUntil.setDate(lockedUntil.getDate() + 3);
+  } else if (duration === '7d') {
+    isLocked = true;
+    lockedUntil = new Date();
+    lockedUntil.setDate(lockedUntil.getDate() + 7);
+  } else if (duration === 'permanent') {
+    isLocked = true;
+    lockedUntil = new Date('9999-12-31T23:59:59Z'); // Vĩnh viễn
+  } else if (duration === 'unlock') {
+    isLocked = false;
+    lockedUntil = null;
+  } else {
+    const error = new Error('Thời hạn khóa không hợp lệ.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const updatedUser = await prisma.user.update({
+    where: { id },
+    data: { isLocked, lockedUntil },
+    select: {
+      id: true,
+      email: true,
+      fullName: true,
+      role: true,
+      isLocked: true,
+      lockedUntil: true,
+    },
+  });
+
+  return updatedUser;
+};
+
+/**
  * Cập nhật thông tin cá nhân của User hiện tại
  */
 const updateProfile = async (userId, data) => {
@@ -184,5 +235,6 @@ module.exports = {
   getUserById,
   updateUserRole,
   deleteUser,
+  lockUser,
   updateProfile,
 };

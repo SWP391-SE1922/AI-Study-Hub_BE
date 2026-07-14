@@ -35,9 +35,19 @@ const deleteUser = asyncHandler(async (req, res) => {
   return res.status(204).end(); // Trả về 204 No Content
 });
 
+/**
+ * Khóa người dùng (Admin Only)
+ */
+const lockUser = asyncHandler(async (req, res) => {
+  const { duration } = req.body;
+  const updatedUser = await userService.lockUser(req.params.id, duration);
+  return sendSuccess(res, 'Khóa người dùng thành công', { user: updatedUser }, null, 200);
+});
+
 module.exports = {
   getAllUsers,
   getUserById,
   updateUserRole,
   deleteUser,
+  lockUser,
 };

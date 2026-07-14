@@ -133,11 +133,21 @@ const loginGoogle = async (idToken) => {
 
   let payload;
   try {
-    const ticket = await googleClient.verifyIdToken({
-      idToken: idToken,
-      audience: process.env.GOOGLE_CLIENT_ID,
-    });
-    payload = ticket.getPayload();
+    if (idToken.startsWith('ya29.')) {
+      // Xử lý Access Token từ frontend custom button
+      googleClient.setCredentials({ access_token: idToken });
+      const userInfo = await googleClient.request({
+        url: 'https://www.googleapis.com/oauth2/v3/userinfo',
+      });
+      payload = userInfo.data;
+    } else {
+      // Xử lý ID Token (JWT) thông thường
+      const ticket = await googleClient.verifyIdToken({
+        idToken: idToken,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+      payload = ticket.getPayload();
+    }
   } catch (err) {
     const error = new Error(err.message);
     error.statusCode = 401;

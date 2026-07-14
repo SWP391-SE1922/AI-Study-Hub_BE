@@ -100,6 +100,41 @@ router.put('/:id/role', authMiddleware, requireRole('ADMIN'), validate(changeRol
 
 /**
  * @swagger
+ * /api/users/{id}/lock:
+ *   put:
+ *     summary: Khóa người dùng (Chỉ Admin)
+ *     tags: [Users (Admin Management)]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - duration
+ *             properties:
+ *               duration:
+ *                 type: string
+ *                 enum: [3d, 7d, permanent, unlock]
+ *                 example: 3d
+ *     responses:
+ *       200:
+ *         description: Thay đổi thành công
+ *       400:
+ *         description: Lỗi đầu vào
+ */
+router.put('/:id/lock', authMiddleware, requireRole('ADMIN'), userController.lockUser);
+
+/**
+ * @swagger
  * /api/users/{id}:
  *   delete:
  *     summary: Xóa vĩnh viễn tài khoản người dùng (Chỉ Admin)
