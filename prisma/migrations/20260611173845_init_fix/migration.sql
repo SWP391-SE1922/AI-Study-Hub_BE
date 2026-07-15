@@ -81,14 +81,14 @@ CREATE TABLE [dbo].[_prisma_new_users] (
     [resetPasswordToken] NVARCHAR(1000),
     [resetPasswordExpire] DATETIME2,
     [usedStorage] FLOAT(53) NOT NULL CONSTRAINT [users_usedStorage_df] DEFAULT 0,
-    [storageLimit] FLOAT(53) NOT NULL,
+    [storageLimit] FLOAT(53) NOT NULL CONSTRAINT [users_storageLimit_df] DEFAULT 5368709120,
     [createdAt] DATETIME2 NOT NULL CONSTRAINT [users_createdAt_df] DEFAULT CURRENT_TIMESTAMP,
     [updatedAt] DATETIME2 NOT NULL,
     CONSTRAINT [users_pkey] PRIMARY KEY CLUSTERED ([id]),
     CONSTRAINT [users_email_key] UNIQUE NONCLUSTERED ([email])
 );
 IF EXISTS(SELECT * FROM [dbo].[users])
-    EXEC('INSERT INTO [dbo].[_prisma_new_users] ([avatarUrl],[createdAt],[email],[fullName],[id],[isVerified],[password],[role],[updatedAt]) SELECT [avatarUrl],[createdAt],[email],[fullName],[id],[isVerified],[password],[role],[updatedAt] FROM [dbo].[users] WITH (holdlock tablockx)');
+    EXEC('INSERT INTO [dbo].[_prisma_new_users] ([avatarUrl],[createdAt],[email],[fullName],[id],[isVerified],[password],[role],[updatedAt],[storageLimit]) SELECT [avatarUrl],[createdAt],[email],[fullName],[id],[isVerified],[password],[role],[updatedAt], 5368709120 FROM [dbo].[users] WITH (holdlock tablockx)');
 DROP TABLE [dbo].[users];
 EXEC SP_RENAME N'dbo._prisma_new_users', N'users';
 COMMIT;
