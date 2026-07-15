@@ -8,26 +8,39 @@ generator client {
 }
 
 model User {
-  id                  String        @id @default(uuid())
-  email               String        @unique
+  id                  String    @id @default(uuid())
+  email               String    @unique
   password            String
   fullName            String
   avatarUrl           String?
-  role                String        @default("USER") // GUEST, USER, ADMIN
-  isVerified          Boolean       @default(false)
+  role                String    @default("USER") // GUEST, USER, ADMIN
+  isVerified          Boolean   @default(false)
   verifyEmailToken    String?
   verifyEmailExpire   DateTime?
   resetPasswordToken  String?
   resetPasswordExpire DateTime?
-  usedStorage         Float         @default(0) // Dung lượng đã dùng (Bytes)
-  storageLimit        Float         @default(5368709120) // Giới hạn dung lượng (Bytes) - mặc định 5GB
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
-  documents           Document[]
-  folders             Folder[]
-  subjects            Subject[]
-  ChatSession         ChatSession[]
-  transactions        Transaction[]
+
+  // Storage: đơn vị Bytes
+  usedStorage  Float @default(0)
+  storageLimit Float @default(5368709120) // 5 GB miễn phí
+
+  // AI Chat usage
+  dailyChatLimit Int       @default(20)
+  todayChatUsed  Int       @default(0)
+  chatUsageDate  DateTime?
+
+  // ACTIVE, SUSPENDED, BANNED
+  accountStatus String @default("ACTIVE")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  documents     Document[]
+  folders       Folder[]
+  subjects      Subject[]
+  chatSessions  ChatSession[]
+  transactions  Transaction[]
+  subscriptions UserSubscription[]
 
   @@map("users")
 }
@@ -45,18 +58,21 @@ model Category {
 }
 
 model Folder {
-  id        String     @id @default(uuid())
+  id        String   @id @default(uuid())
   name      String
   userId    String
   parentId  String?
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   parent    Folder?    @relation("FolderToFolder", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   children  Folder[]   @relation("FolderToFolder")
   documents Document[]
 
-  @@unique([name, parentId, userId]) // Không cho phép trùng tên folder trong cùng 1 parent của cùng 1 user
+  @@unique([name, parentId, userId])
+  @@index([userId])
+  @@index([parentId])
   @@map("folders")
 }
 
@@ -72,6 +88,7 @@ model Subject {
   creator   User?      @relation(fields: [createdBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
   documents Document[]
 
+  @@index([createdBy])
   @@map("subjects")
 }
 
@@ -103,25 +120,28 @@ model Document {
   subjectRef Subject?          @relation(fields: [subjectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   versions   DocumentVersion[]
 
+  @@index([uploadedBy])
+  @@index([categoryId])
+  @@index([folderId])
+  @@index([subjectId])
   @@map("documents")
 }
 
 model DocumentVersion {
-  id         String @id @default(uuid())
+  id         String   @id @default(uuid())
   documentId String
-
-  version Int
-
-  fileUrl  String
-  fileName String
-  fileSize Int
-  mimeType String
-
+  version    Int
+  fileUrl    String
+  fileName   String
+  fileSize   Int
+  mimeType   String
   uploadedBy String
   createdAt  DateTime @default(now())
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
+  @@unique([documentId, version])
+  @@index([documentId])
   @@map("document_versions")
 }
 
@@ -135,6 +155,7 @@ model ChatSession {
   user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages ChatMessage[]
 
+  @@index([userId])
   @@map("chat_sessions")
 }
 
@@ -147,21 +168,82 @@ model ChatMessage {
 
   session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
+  @@index([sessionId])
   @@map("chat_messages")
 }
 
-model Transaction {
-  id            String   @id @default(uuid())
-  userId        String
-  amount        Float
-  status        String   // "SUCCESS", "FAILED", "PENDING"
-  paymentMethod String   // "VNPAY", "MOMO", "PAYOS"
-  description   String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+// Danh sách các gói nâng cấp được cấu hình bởi hệ thống.
+model SubscriptionPlan {
+  id             String   @id @default(uuid())
+  code           String   @unique // PRO_10, PRO_50, PRO_200
+  name           String
+  price          Float
+  storageLimit   Float // Bytes
+  dailyChatLimit Int
+  durationDays   Int      @default(30)
+  description    String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptions UserSubscription[]
+  transactions  Transaction[]
 
-  @@map("transactions")
+  @@index([isActive])
+  @@map("subscription_plans")
 }
 
+// Lịch sử gói đã mua của từng người dùng.
+model UserSubscription {
+  id     String @id @default(uuid())
+  userId String
+  planId String
+
+  // ACTIVE, EXPIRED, CANCELLED, SUSPENDED
+  status     String   @default("ACTIVE")
+  startDate  DateTime @default(now())
+  expireDate DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([userId])
+  @@index([planId])
+  @@index([status, expireDate])
+  @@map("user_subscriptions")
+}
+
+model Transaction {
+  id     String  @id @default(uuid())
+  userId String
+  planId String?
+  amount Float
+
+  // PENDING, SUCCESS, FAILED, CANCELLED
+  status String @default("PENDING")
+
+  // VNPAY, PAYOS, MOMO
+  paymentMethod String
+  description   String?
+
+  // Thông tin do cổng thanh toán trả về
+  transactionNo String?
+  bankCode      String?
+  responseCode  String?
+  orderInfo     String?
+  paidAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan SubscriptionPlan? @relation(fields: [planId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([userId])
+  @@index([planId])
+  @@index([status])
+  @@index([paymentMethod])
+  @@map("transactions")
+}

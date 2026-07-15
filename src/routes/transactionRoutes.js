@@ -5,7 +5,7 @@ const requireRole = require('../middlewares/roleMiddleware');
 
 const router = express.Router();
 
-// Bắt buộc đăng nhập cho các route này
+// Bắt buộc đăng nhập
 router.use(authMiddleware);
 
 /**
@@ -16,26 +16,40 @@ router.use(authMiddleware);
  *     tags: [Transactions]
  *     security:
  *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Thành công
  */
-router.get('/my-transactions', transactionController.getMyTransactions);
+router.get(
+    '/my-transactions',
+    transactionController.getMyTransactions
+);
 
 /**
  * @swagger
  * /api/transactions/all:
  *   get:
- *     summary: Lấy toàn bộ lịch sử giao dịch trên hệ thống (Chỉ Admin)
+ *     summary: Lấy toàn bộ lịch sử giao dịch (Admin)
  *     tags: [Transactions]
  *     security:
  *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Thành công
- *       403:
- *         description: Không có quyền truy cập
  */
-router.get('/all', requireRole('ADMIN'), transactionController.getAllTransactions);
+router.get(
+    '/all',
+    requireRole('ADMIN'),
+    transactionController.getAllTransactions
+);
+
+/**
+ * @swagger
+ * /api/transactions/{id}/approve:
+ *   patch:
+ *     summary: Admin xác nhận giao dịch chuyển khoản
+ *     tags: [Transactions]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.patch(
+    '/:id/approve',
+    requireRole('ADMIN'),
+    transactionController.approveTransaction
+);
 
 module.exports = router;
