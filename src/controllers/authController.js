@@ -103,10 +103,10 @@ const resendVerificationEmail = asyncHandler(async (req, res) => {
  */
 const loginGoogle = asyncHandler(async (req, res) => {
   const { idToken } = req.body;
-  
+
   // Gọi xuống Service xử lý verify & kiểm tra DB
   const result = await authService.loginGoogle(idToken);
-  
+
   // Trả về response theo đúng format sendSuccess của dự án
   return sendSuccess(res, 'Đăng nhập Google thành công', result, null, 200);
 });
