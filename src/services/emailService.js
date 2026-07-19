@@ -101,8 +101,7 @@ const sendResetPassword = async (email, token) => {
 };
 
 const sendVerificationEmail = async (email, token) => {
-  const baseUrl = (process.env.BASE_URL || `http://localhost:${process.env.PORT || 3636}`).replace(/\/$/, '');
-  const verifyLink = `${baseUrl}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
+  const verifyLink = buildFrontendUrl(`/verify-email?token=${encodeURIComponent(token)}`);
 
   return sendMailSafe({
     to: email,

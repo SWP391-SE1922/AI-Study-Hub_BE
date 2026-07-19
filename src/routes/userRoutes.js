@@ -15,6 +15,12 @@ const changeRoleSchema = Joi.object({
   }),
 });
 
+const changePlanSchema = Joi.object({
+  plan: Joi.string().required().messages({
+    'any.required': 'Gói cước mới (plan) là bắt buộc',
+  }),
+});
+
 /**
  * @swagger
  * /api/users:
@@ -97,6 +103,42 @@ router.get('/:id', authMiddleware, requireRole('ADMIN'), userController.getUserB
  *         description: Thay đổi thành công
  */
 router.put('/:id/role', authMiddleware, requireRole('ADMIN'), validate(changeRoleSchema), userController.updateUserRole);
+router.put('/:id/plan', authMiddleware, requireRole('ADMIN'), validate(changePlanSchema), userController.updateUserPlan);
+
+/**
+ * @swagger
+ * /api/users/{id}/lock:
+ *   put:
+ *     summary: Khóa người dùng (Chỉ Admin)
+ *     tags: [Users (Admin Management)]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - duration
+ *             properties:
+ *               duration:
+ *                 type: string
+ *                 enum: [3d, 7d, permanent, unlock]
+ *                 example: 3d
+ *     responses:
+ *       200:
+ *         description: Thay đổi thành công
+ *       400:
+ *         description: Lỗi đầu vào
+ */
+router.put('/:id/lock', authMiddleware, requireRole('ADMIN'), userController.lockUser);
 
 /**
  * @swagger
@@ -152,5 +194,6 @@ router.put('/:id/lock', authMiddleware, requireRole('ADMIN'), userController.loc
  *         description: Xóa tài khoản thành công
  */
 router.delete('/:id', authMiddleware, requireRole('ADMIN'), userController.deleteUser);
+router.post('/:id/restore', authMiddleware, requireRole('ADMIN'), userController.restoreUser);
 
 module.exports = router;

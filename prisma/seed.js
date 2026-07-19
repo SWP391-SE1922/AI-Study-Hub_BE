@@ -103,6 +103,28 @@ async function main() {
 
   console.log('✅ Seed an toàn hoàn tất, không xóa dữ liệu cũ.');
   console.log('Admin:', admin.email, '/ 123456');
+
+  // Seed gói đăng ký mặc định
+  const { DEFAULT_PLANS } = require('../src/config/constants');
+  for (const plan of DEFAULT_PLANS) {
+    await prisma.subscriptionPlan.upsert({
+      where: { code: plan.code },
+      update: {
+        name: plan.name,
+        price: plan.price,
+        storageLimit: plan.storageLimit,
+        aiQuestionsLimit: plan.aiQuestionsLimit,
+        aiModel: plan.aiModel,
+        durationDays: plan.durationDays,
+        features: plan.features,
+        description: plan.description,
+        sortOrder: plan.sortOrder,
+        isActive: true,
+      },
+      create: plan,
+    });
+  }
+  console.log('✅ Seed subscription plans xong.');
 }
 
 main()

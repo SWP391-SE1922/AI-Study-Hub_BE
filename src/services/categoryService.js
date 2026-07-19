@@ -1,33 +1,56 @@
 const prisma = require('../config/database');
+const { markUniqueDeleted, restoreUniqueValue, notDeleted } = require('../utils/softDelete');
 
 /**
- * Lấy danh sách toàn bộ danh mục kèm số lượng tài liệu
+ * Lấy danh sách danh mục.
+ * Admin (includeDeleted=true) thấy cả bản ghi đã xóa mềm.
  */
-const getAllCategories = async () => {
-  return prisma.category.findMany({
+const getAllCategories = async ({ includeDeleted = false } = {}) => {
+  const where = includeDeleted ? {} : notDeleted();
+
+  const categories = await prisma.category.findMany({
+    where,
     select: {
       id: true,
       name: true,
       description: true,
+      deletedAt: true,
       createdAt: true,
       _count: {
         select: { documents: true },
       },
     },
-    orderBy: { name: 'asc' },
+    orderBy: [{ deletedAt: 'asc' }, { name: 'asc' }],
   });
+
+  return categories.map((c) => ({
+    ...c,
+    name: c.deletedAt ? restoreUniqueValue(c.name) : c.name,
+  }));
 };
 
-/**
- * Tạo mới danh mục (Admin Only)
- */
 const createCategory = async (name, description) => {
-  // Kiểm tra trùng tên danh mục
-  const existingCategory = await prisma.category.findUnique({ where: { name } });
+  const existingCategory = await prisma.category.findFirst({
+    where: { name, ...notDeleted() },
+  });
   if (existingCategory) {
     const error = new Error('Tên danh mục này đã tồn tại.');
     error.statusCode = 409;
     throw error;
+  }
+
+  // Revive soft-deleted cùng tên nếu có
+  const anyWithBase = await prisma.category.findMany({
+    where: {
+      OR: [{ name }, { name: { startsWith: `${name}.__del__.` } }],
+    },
+  });
+  const resurrect = anyWithBase.find((c) => c.deletedAt && restoreUniqueValue(c.name) === name);
+  if (resurrect) {
+    return prisma.category.update({
+      where: { id: resurrect.id },
+      data: { name, description, deletedAt: null },
+    });
   }
 
   return prisma.category.create({
@@ -35,21 +58,18 @@ const createCategory = async (name, description) => {
   });
 };
 
-/**
- * Cập nhật danh mục (Admin Only)
- */
 const updateCategory = async (id, name, description) => {
-  // Kiểm tra danh mục có tồn tại không
   const category = await prisma.category.findUnique({ where: { id } });
-  if (!category) {
+  if (!category || category.deletedAt) {
     const error = new Error('Không tìm thấy danh mục yêu cầu.');
     error.statusCode = 404;
     throw error;
   }
 
-  // Kiểm tra trùng tên với danh mục khác
   if (name && name !== category.name) {
-    const duplicate = await prisma.category.findUnique({ where: { name } });
+    const duplicate = await prisma.category.findFirst({
+      where: { name, ...notDeleted(), NOT: { id } },
+    });
     if (duplicate) {
       const error = new Error('Tên danh mục này đã được sử dụng bởi danh mục khác.');
       error.statusCode = 409;
@@ -66,20 +86,51 @@ const updateCategory = async (id, name, description) => {
   });
 };
 
-/**
- * Xóa danh mục (Admin Only)
- */
 const deleteCategory = async (id) => {
+  const category = await prisma.category.findUnique({ where: { id } });
+  if (!category || category.deletedAt) {
+    const error = new Error('Không tìm thấy danh mục yêu cầu.');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  await prisma.category.update({
+    where: { id },
+    data: {
+      deletedAt: new Date(),
+      name: markUniqueDeleted(category.name, id),
+    },
+  });
+  return true;
+};
+
+const restoreCategory = async (id) => {
   const category = await prisma.category.findUnique({ where: { id } });
   if (!category) {
     const error = new Error('Không tìm thấy danh mục yêu cầu.');
     error.statusCode = 404;
     throw error;
   }
+  if (!category.deletedAt) {
+    const error = new Error('Danh mục này chưa bị xóa.');
+    error.statusCode = 400;
+    throw error;
+  }
 
-  // Xóa danh mục (các Document sẽ tự động SetNull categoryId theo quy định onDelete: SetNull của Prisma)
-  await prisma.category.delete({ where: { id } });
-  return true;
+  const name = restoreUniqueValue(category.name);
+  const clash = await prisma.category.findFirst({
+    where: { name, ...notDeleted(), NOT: { id } },
+  });
+  if (clash) {
+    const error = new Error('Tên danh mục đã được sử dụng. Không thể khôi phục.');
+    error.statusCode = 409;
+    throw error;
+  }
+
+  return prisma.category.update({
+    where: { id },
+    data: { deletedAt: null, name },
+  });
 };
 
 module.exports = {
@@ -87,4 +138,5 @@ module.exports = {
   createCategory,
   updateCategory,
   deleteCategory,
+  restoreCategory,
 };

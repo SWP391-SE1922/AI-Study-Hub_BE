@@ -7,8 +7,8 @@ const { sendSuccess } = require('../utils/response');
  * Đăng ký tài khoản (Giữ nguyên)
  */
 const register = asyncHandler(async (req, res) => {
-  const { email, password, fullName } = req.body;
-  const result = await authService.register(email, password, fullName);
+  const { email, password, fullName, phoneNumber } = req.body;
+  const result = await authService.register(email, password, fullName, phoneNumber);
   return sendSuccess(res, 'Đăng ký tài khoản thành công', result, null, 201);
 });
 
@@ -58,8 +58,8 @@ const getMe = asyncHandler(async (req, res) => {
  * Cập nhật hồ sơ cá nhân (Giữ nguyên)
  */
 const updateProfile = asyncHandler(async (req, res) => {
-  const { fullName, avatarUrl } = req.body;
-  const updatedUser = await userService.updateProfile(req.user.id, { fullName, avatarUrl });
+  const { fullName, avatarUrl, phoneNumber } = req.body;
+  const updatedUser = await userService.updateProfile(req.user.id, { fullName, avatarUrl, phoneNumber });
   return sendSuccess(res, 'Cập nhật hồ sơ cá nhân thành công', { user: updatedUser }, null, 200);
 });
 
@@ -111,6 +111,19 @@ const loginGoogle = asyncHandler(async (req, res) => {
   return sendSuccess(res, 'Đăng nhập Google thành công', result, null, 200);
 });
 
+/**
+ * Tải ảnh đại diện
+ */
+const uploadAvatar = asyncHandler(async (req, res) => {
+  if (!req.file) {
+    const error = new Error('Vui lòng chọn một file ảnh.');
+    error.statusCode = 400;
+    throw error;
+  }
+  const avatarUrl = `/uploads/${req.file.filename}`;
+  return sendSuccess(res, 'Tải ảnh thành công', { avatarUrl }, null, 200);
+});
+
 module.exports = {
   register,
   login,
@@ -122,5 +135,6 @@ module.exports = {
   changePassword,
   verifyEmail,
   resendVerificationEmail,
-  loginGoogle, // <-- Đừng quên export ở đây nha
+  loginGoogle,
+  uploadAvatar,
 };

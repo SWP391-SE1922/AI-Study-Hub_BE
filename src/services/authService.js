@@ -12,13 +12,13 @@ const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 /**
  * Đăng ký tài khoản mới
  */
-const register = async (email, password, fullName) => {
+const register = async (email, password, fullName, phoneNumber) => {
   email = normalizeEmail(email);
   fullName = String(fullName || '').trim();
 
   // 1. Kiểm tra email tồn tại
   const existingUser = await prisma.user.findUnique({ where: { email } });
-  if (existingUser) {
+  if (existingUser && !existingUser.deletedAt) {
     const error = new Error('Email đã được đăng ký trong hệ thống.');
     error.statusCode = 409;
     throw error;
@@ -32,12 +32,43 @@ const register = async (email, password, fullName) => {
   const hashedToken = crypto.createHash('sha256').update(verifyToken).digest('hex');
   const expireTime = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 giờ
 
+  // 3b. Email đã xóa mềm → khôi phục tài khoản với mật khẩu mới
+  if (existingUser && existingUser.deletedAt) {
+    const revived = await prisma.user.update({
+      where: { id: existingUser.id },
+      data: {
+        password: hashedPassword,
+        fullName,
+        phoneNumber,
+        deletedAt: null,
+        isVerified: false,
+        verifyEmailToken: hashedToken,
+        verifyEmailExpire: expireTime,
+        resetPasswordToken: null,
+        resetPasswordExpire: null,
+      },
+    });
+    await emailService.sendVerificationEmail(revived.email, verifyToken).catch(() => null);
+    return {
+      user: {
+        id: revived.id,
+        email: revived.email,
+        fullName: revived.fullName,
+        role: revived.role,
+        isVerified: revived.isVerified,
+      },
+      emailSent: true,
+      message: 'Tài khoản đã được khôi phục. Vui lòng xác thực email.',
+    };
+  }
+
   // 4. Tạo tài khoản người dùng mặc định (USER, chưa verify)
   const user = await prisma.user.create({
     data: {
       email,
       password: hashedPassword,
       fullName,
+      phoneNumber,
       role: 'USER',
       isVerified: false,
       verifyEmailToken: hashedToken,
@@ -77,7 +108,7 @@ const login = async (email, password) => {
 
   // 1. Tìm người dùng theo email
   const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) {
+  if (!user || user.deletedAt) {
     const error = new Error('Email hoặc mật khẩu không đúng');
     error.statusCode = 401;
     throw error;
@@ -161,6 +192,12 @@ const loginGoogle = async (idToken) => {
   // 1. Tìm xem người dùng đã tồn tại trong DB chưa
   let user = await prisma.user.findUnique({ where: { email } });
 
+  if (user && user.deletedAt) {
+    const error = new Error('Tài khoản này đã bị xóa. Vui lòng liên hệ admin để khôi phục.');
+    error.statusCode = 403;
+    throw error;
+  }
+
   if (!user) {
     // 2. Nếu CHƯA có -> Tự động đăng ký mới (Mặc định được verify)
     user = await prisma.user.create({
@@ -218,7 +255,7 @@ const forgotPassword = async (email) => {
   email = normalizeEmail(email);
   const user = await prisma.user.findUnique({ where: { email } });
 
-  if (!user) {
+  if (!user || user.deletedAt) {
     return { success: true, emailSent: null, message: 'Nếu email tồn tại, hệ thống sẽ gửi hướng dẫn đặt lại mật khẩu.' };
   }
 

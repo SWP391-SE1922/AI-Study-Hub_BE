@@ -327,5 +327,6 @@ router.put('/:id', authMiddleware, upload.single('file'), validate(updateDocumen
  *         description: Không có quyền xóa
  */
 router.delete('/:id', authMiddleware, documentController.deleteDocument);
+router.post('/:id/restore', authMiddleware, documentController.restoreDocument);
 
 module.exports = router;

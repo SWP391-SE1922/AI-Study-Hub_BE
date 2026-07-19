@@ -31,3 +31,12 @@ Thumbs.db
 # Build outputs
 dist/
 build/
+
+# Runtime uploads and generated vector data
+uploads/*
+!uploads/.gitkeep
+
+# Local scratch and ad-hoc test files
+dummy.txt
+scratch_test_*.js
+test-ingest.js

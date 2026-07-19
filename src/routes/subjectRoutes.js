@@ -1,6 +1,6 @@
 const express = require('express');
 const subjectController = require('../controllers/subjectController');
-const { authMiddleware } = require('../middlewares/authMiddleware');
+const { authMiddleware, authMiddlewareOptional } = require('../middlewares/authMiddleware');
 const requireRole = require('../middlewares/roleMiddleware');
 const validate = require('../middlewares/validationMiddleware');
 const {
@@ -33,7 +33,7 @@ const router = express.Router();
  *       200:
  *         description: Thành công
  */
-router.get('/', subjectController.getAllSubjects);
+router.get('/', authMiddlewareOptional, subjectController.getAllSubjects);
 
 /**
  * @swagger
@@ -146,6 +146,13 @@ router.delete(
   authMiddleware,
   requireRole('ADMIN'),
   subjectController.deleteSubject
+);
+
+router.post(
+  '/:id/restore',
+  authMiddleware,
+  requireRole('ADMIN'),
+  subjectController.restoreSubject
 );
 
 module.exports = router;

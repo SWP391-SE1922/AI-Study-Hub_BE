@@ -12,6 +12,7 @@ const createFolder = async (userId, data) => {
       name,
       parentId: parentId || null,
       userId,
+      deletedAt: null,
     },
   });
 
@@ -24,7 +25,7 @@ const createFolder = async (userId, data) => {
   // Nếu có parentId, kiểm tra parentId có tồn tại và thuộc về user không
   if (parentId) {
     const parentFolder = await prisma.folder.findFirst({
-      where: { id: parentId, userId },
+      where: { id: parentId, userId, deletedAt: null },
     });
     if (!parentFolder) {
       const error = new Error('Thư mục gốc không tồn tại hoặc không thuộc quyền sở hữu của bạn.');
@@ -69,6 +70,7 @@ const getResources = async (userId, queryParams) => {
     where: {
       parentId: folderId,
       userId,
+      deletedAt: null,
     },
     orderBy: { createdAt: 'desc' },
   });
@@ -78,6 +80,7 @@ const getResources = async (userId, queryParams) => {
     where: {
       folderId: folderId,
       uploadedBy: userId,
+      deletedAt: null,
     },
     orderBy: { createdAt: 'desc' },
   });
@@ -86,12 +89,11 @@ const getResources = async (userId, queryParams) => {
 };
 
 /**
- * Xóa thư mục (Sẽ xóa toàn bộ thư mục con và file do cơ chế Cascade/Set Null hoặc phải xử lý tay)
- * Prisma hỗ trợ Cascade delete cho relation.
+ * Soft delete thư mục (chỉ khi rỗng).
  */
 const deleteFolder = async (userId, folderId) => {
   const folder = await prisma.folder.findFirst({
-    where: { id: folderId, userId },
+    where: { id: folderId, userId, deletedAt: null },
   });
 
   if (!folder) {
@@ -100,22 +102,27 @@ const deleteFolder = async (userId, folderId) => {
     throw error;
   }
 
-  // Lưu ý: Việc xóa folder cần phải trừ đi usedStorage của toàn bộ file bên trong.
-  // Tuy nhiên Prisma SQL Server không tự trigger hook, nên ta phải tính toán dung lượng trước khi xóa.
-  // 1. Tìm tất cả file trong thư mục này và thư mục con (Đệ quy)
-  // Việc này phức tạp. Tạm thời trong bài toán cơ bản, ta cấm xóa thư mục nếu nó có file, 
-  // hoặc dùng vòng lặp xóa từng file thông qua documentService.
-  // Ở đây chọn cách đơn giản: Cấm xóa nếu thư mục không rỗng.
-  const hasFiles = await prisma.document.count({ where: { folderId } });
-  const hasChildren = await prisma.folder.count({ where: { parentId: folderId } });
-  
+  const hasFiles = await prisma.document.count({
+    where: { folderId, deletedAt: null },
+  });
+  const hasChildren = await prisma.folder.count({
+    where: { parentId: folderId, deletedAt: null },
+  });
+
   if (hasFiles > 0 || hasChildren > 0) {
     const error = new Error('Thư mục không rỗng. Vui lòng xóa hết file và thư mục con bên trong trước khi xóa.');
     error.statusCode = 400;
     throw error;
   }
 
-  await prisma.folder.delete({ where: { id: folderId } });
+  const { markUniqueDeleted } = require('../utils/softDelete');
+  await prisma.folder.update({
+    where: { id: folderId },
+    data: {
+      deletedAt: new Date(),
+      name: markUniqueDeleted(folder.name, folderId),
+    },
+  });
   return true;
 };
 

@@ -108,7 +108,17 @@ const deleteDocument = asyncHandler(async (req, res) => {
     req.params.id
   );
 
-  return res.status(204).end();
+  return sendSuccess(res, 'Đã xóa mềm tài liệu', null, null, 200);
+});
+
+const restoreDocument = asyncHandler(async (req, res) => {
+  const document = await documentService.restoreDocument(
+    req.user.id,
+    req.user.role,
+    req.params.id
+  );
+
+  return sendSuccess(res, 'Đã khôi phục tài liệu', { document }, null, 200);
 });
 
 /**
@@ -286,6 +296,7 @@ module.exports = {
   getDocumentById,
   updateDocument,
   deleteDocument,
+  restoreDocument,
   downloadDocument,
   previewDocumentVersion,
   downloadDocumentVersion,

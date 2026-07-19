@@ -19,10 +19,10 @@ const authMiddleware = async (req, res, next) => {
 
     const user = await prisma.user.findUnique({
       where: { id: decoded.id },
-      select: { id: true, email: true, role: true },
+      select: { id: true, email: true, role: true, isVerified: true, deletedAt: true },
     });
 
-    if (!user) {
+    if (!user || user.deletedAt) {
       return sendError(res, 'Token không hợp lệ hoặc người dùng không tồn tại', 401);
     }
 
@@ -30,6 +30,7 @@ const authMiddleware = async (req, res, next) => {
       id: user.id,
       email: user.email,
       role: user.role ? (user.role.name || user.role) : 'GUEST',
+      isVerified: user.isVerified,
     };
 
     next();
@@ -58,14 +59,15 @@ const authMiddlewareOptional = async (req, res, next) => {
     const decoded = verifyToken(token);
     const user = await prisma.user.findUnique({
       where: { id: decoded.id },
-      select: { id: true, email: true, role: true },
+      select: { id: true, email: true, role: true, isVerified: true, deletedAt: true },
     });
 
-    if (user) {
+    if (user && !user.deletedAt) {
       req.user = {
         id: user.id,
         email: user.email,
         role: user.role ? (user.role.name || user.role) : 'GUEST',
+        isVerified: user.isVerified,
       };
     }
   } catch (error) {

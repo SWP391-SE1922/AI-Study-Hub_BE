@@ -4,8 +4,8 @@ const { authMiddleware } = require('../middlewares/authMiddleware');
 
 const router = express.Router();
 
-// Bắt buộc đăng nhập cho mọi thao tác với thư mục
-router.use(authMiddleware);
+// Auth gắn từng route — KHÔNG dùng router.use(authMiddleware)
+// vì folderRoutes mount tại '/' và middleware global sẽ chặn cả VNPay return.
 
 /**
  * @swagger
@@ -35,7 +35,7 @@ router.use(authMiddleware);
  *       201:
  *         description: Tạo thành công
  */
-router.post('/folders', folderController.createFolder);
+router.post('/folders', authMiddleware, folderController.createFolder);
 
 /**
  * @swagger
@@ -55,7 +55,7 @@ router.post('/folders', folderController.createFolder);
  *       200:
  *         description: Xóa thành công
  */
-router.delete('/folders/:id', folderController.deleteFolder);
+router.delete('/folders/:id', authMiddleware, folderController.deleteFolder);
 
 /**
  * @swagger
@@ -75,6 +75,6 @@ router.delete('/folders/:id', folderController.deleteFolder);
  *       200:
  *         description: Lấy thành công
  */
-router.get('/resources', folderController.getResources);
+router.get('/resources', authMiddleware, folderController.getResources);
 
 module.exports = router;

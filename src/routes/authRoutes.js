@@ -1,6 +1,7 @@
 const express = require('express');
 const authController = require('../controllers/authController');
 const { authMiddleware } = require('../middlewares/authMiddleware');
+const upload = require('../middlewares/uploadMiddleware');
 const validate = require('../middlewares/validationMiddleware');
 const {
   registerSchema,
@@ -312,5 +313,16 @@ router.get('/verify-email', authController.verifyEmail);
  *         description: Lỗi máy chủ
  */
 router.post('/resend-verification', validate(forgotPasswordSchema), authController.resendVerificationEmail);
+
+/**
+ * @swagger
+ * /api/auth/upload-avatar:
+ *   post:
+ *     summary: Tải lên ảnh đại diện
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post('/upload-avatar', authMiddleware, upload.single('avatar'), authController.uploadAvatar);
 
 module.exports = router;

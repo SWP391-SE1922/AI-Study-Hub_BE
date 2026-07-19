@@ -1,6 +1,6 @@
 const express = require('express');
 const categoryController = require('../controllers/categoryController');
-const { authMiddleware } = require('../middlewares/authMiddleware');
+const { authMiddleware, authMiddlewareOptional } = require('../middlewares/authMiddleware');
 const requireRole = require('../middlewares/roleMiddleware');
 const validate = require('../middlewares/validationMiddleware');
 const { createCategorySchema, updateCategorySchema } = require('../validators/categoryValidator');
@@ -17,7 +17,7 @@ const router = express.Router();
  *       200:
  *         description: Lấy danh sách thành công
  */
-router.get('/', categoryController.getAllCategories);
+router.get('/', authMiddlewareOptional, categoryController.getAllCategories);
 
 /**
  * @swagger
@@ -102,5 +102,6 @@ router.put('/:id', authMiddleware, requireRole('ADMIN'), validate(updateCategory
  *         description: Xóa thành công
  */
 router.delete('/:id', authMiddleware, requireRole('ADMIN'), categoryController.deleteCategory);
+router.post('/:id/restore', authMiddleware, requireRole('ADMIN'), categoryController.restoreCategory);
 
 module.exports = router;

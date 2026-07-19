@@ -32,7 +32,12 @@ const updateUserRole = asyncHandler(async (req, res) => {
  */
 const deleteUser = asyncHandler(async (req, res) => {
   await userService.deleteUser(req.params.id, req.user.id);
-  return res.status(204).end(); // Trả về 204 No Content
+  return sendSuccess(res, 'Đã xóa mềm người dùng', null, null, 200);
+});
+
+const restoreUser = asyncHandler(async (req, res) => {
+  const user = await userService.restoreUser(req.params.id);
+  return sendSuccess(res, 'Đã khôi phục người dùng', { user }, null, 200);
 });
 
 /**
@@ -44,10 +49,21 @@ const lockUser = asyncHandler(async (req, res) => {
   return sendSuccess(res, 'Khóa người dùng thành công', { user: updatedUser }, null, 200);
 });
 
+/**
+ * Cập nhật gói cước của người dùng (Admin Only)
+ */
+const updateUserPlan = asyncHandler(async (req, res) => {
+  const { plan } = req.body;
+  const updatedUser = await userService.updateUserPlan(req.params.id, plan);
+  return sendSuccess(res, 'Cập nhật gói cước thành công', { user: updatedUser }, null, 200);
+});
+
 module.exports = {
   getAllUsers,
   getUserById,
   updateUserRole,
   deleteUser,
+  restoreUser,
   lockUser,
+  updateUserPlan,
 };

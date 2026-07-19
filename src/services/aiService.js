@@ -1,224 +1,195 @@
+const lancedb = require('vectordb');
+const ollama = require('ollama').default;
+const { RecursiveCharacterTextSplitter } = require('@langchain/textsplitters');
+const pdfParse = require('pdf-parse');
+const mammoth = require('mammoth');
+const fs = require('fs');
+const path = require('path');
+const tesseract = require('tesseract.js');
 const prisma = require('../config/database');
-const { getStorageService } = require('../config/storage');
-const documentParser = require('../utils/documentParser');
-const storageService = getStorageService();
 
-// Ollama Config
-const OLLAMA_URL = process.env.Ollama_URL || 'http://localhost:11434';
-const OLLAMA_MODEL = 'llama3'; // Default model, can be changed based on user preference
+const VECTOR_DB_PATH = path.join(__dirname, '../../uploads/vectordb');
 
-function buildTitle(message) {
-  const clean = String(message || '').trim().replace(/\s+/g, ' ');
-  if (!clean) return 'Cuộc trò chuyện mới';
-  return clean.length > 50 ? `${clean.slice(0, 50)}...` : clean;
-}
-
-async function ensureOwnedSession(userId, sessionId) {
-  const session = await prisma.chatSession.findFirst({
-    where: { id: sessionId, userId },
-  });
-
-  if (!session) {
-    const error = new Error('Không tìm thấy cuộc trò chuyện hoặc bạn không có quyền truy cập.');
-    error.statusCode = 404;
-    throw error;
-  }
-
-  return session;
-}
-
-const createChatSession = async (userId, title = 'Cuộc trò chuyện mới') => {
-  return prisma.chatSession.create({
-    data: {
-      userId,
-      title: title || 'Cuộc trò chuyện mới',
-    },
-  });
-};
-
-const getUserChatSessions = async (userId) => {
-  return prisma.chatSession.findMany({
-    where: { userId },
-    include: {
-      messages: {
-        orderBy: { createdAt: 'desc' },
-        take: 1,
-      },
-    },
-    orderBy: { updatedAt: 'desc' },
-  });
-};
-
-const getSessionMessages = async (userId, sessionId) => {
-  await ensureOwnedSession(userId, sessionId);
-
-  return prisma.chatMessage.findMany({
-    where: { sessionId },
-    orderBy: { createdAt: 'asc' },
-  });
-};
-
-/**
- * Call Ollama API
- */
-async function callOllama(systemPrompt, userPrompt) {
-  try {
-    // Bắt buộc trả lời bằng Tiếng Việt
-    const vietnameseInstruction = 'Bạn phải luôn trả lời bằng Tiếng Việt, không được dùng ngôn ngữ khác. ';
-    const fullSystemPrompt = vietnameseInstruction + (systemPrompt || '');
-    
-    const response = await fetch(`${OLLAMA_URL}/api/generate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        prompt: `${fullSystemPrompt}\n\nNgười dùng: ${userPrompt}\nTrợ lý (hãy trả lời bằng Tiếng Việt):`,
-        stream: false
-      })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Ollama API error: ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    return data.response;
-  } catch (error) {
-    console.error('Error calling Ollama:', error);
-    return 'Xin lỗi, tôi không thể kết nối tới máy chủ AI (Ollama) lúc này. Vui lòng thử lại sau.';
-  }
+// Đảm bảo thư mục tồn tại
+if (!fs.existsSync(path.join(__dirname, '../../uploads'))) {
+  fs.mkdirSync(path.join(__dirname, '../../uploads'), { recursive: true });
 }
 
 /**
- * Phân tích từ khóa tìm kiếm
+ * Xác định model tuỳ thuộc vào gói plan của user.
+ * Mặc định trả về qwen2.5:3b (hoặc model mặc định khác), nếu là user PRO thì dùng qwen2.5:7b.
  */
-async function extractSearchKeyword(message) {
-  // Kết quả keyword có thể có chự "GREETING" hoặc "NULL" bằng tiếng Anh
-  const prompt = `Bạn là trợ lý phân tích câu hỏi. Nhiệm vụ của bạn là trích xuất từ khóa chính từ câu hỏi của người dùng.
-Nếu người dùng đang chào hỏi (xin chào, hello, hi, …), hãy trả về chính xác chuỗi "GREETING".
-Nếu không tìm được tên tài liệu hay từ khóa cụ thể, hãy trả về chính xác chuỗi "NULL".
-Chỉ trả về từ khóa, "GREETING", hoặc "NULL", không giải thích gì thêm.
-
-Câu hỏi: "${message}"
-Từ khóa:`;
-
+const getModelForUser = async (userId) => {
+  if (!userId) return 'llama3';
   try {
-    const result = await callOllama('', prompt);
-    return result.trim();
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return 'llama3';
+    if (user.plan === 'PREMIUM') return 'mistral';
+    if (user.plan === 'VIP' || user.plan === 'UNLIMITED' || user.plan === 'PRO') return 'qwen2.5';
+    return 'llama3';
   } catch (err) {
-    return 'NULL';
+    return 'llama3';
   }
-}
+};
 
-const chat = async (userId, sessionId, message) => {
-  const cleanMessage = String(message || '').trim();
-  if (!cleanMessage) {
-    const error = new Error('Tin nhắn không được để trống.');
-    error.statusCode = 400;
-    throw error;
-  }
-
-  let session;
-  if (sessionId) {
-    session = await ensureOwnedSession(userId, sessionId);
-  } else {
-    session = await createChatSession(userId, buildTitle(cleanMessage));
-  }
-
-  const userMessage = await prisma.chatMessage.create({
-    data: {
-      sessionId: session.id,
-      role: 'user',
-      content: cleanMessage,
-    },
+const embedText = async (text) => {
+  const res = await ollama.embeddings({
+    model: 'nomic-embed-text',
+    prompt: text,
   });
+  return res.embedding;
+};
 
-  // RAG Logic:
-  // 1. Phân tích từ khóa
-  const keyword = await extractSearchKeyword(cleanMessage);
-  
-  let assistantReply = '';
-  
-  if (keyword === 'GREETING') {
-    assistantReply = 'Xin chào! Tôi là Trợ lý AI của hệ thống AI Study Hub. Tôi có thể giúp bạn đọc hiểu, tóm tắt và giải đáp thắc mắc về các tài liệu học tập có trên hệ thống. Bạn muốn tìm hiểu về tài liệu nào?';
-  } else if (!keyword || keyword.toUpperCase() === 'NULL' || keyword.toUpperCase().includes('NULL')) {
-    // Nếu không có keyword, chat thông thường với AI
-    assistantReply = await callOllama('Bạn là trợ lý ảo AI Study Hub thân thiện. Hãy trả lời câu hỏi của người dùng một cách ngắn gọn, súc tích.', cleanMessage);
-  } else {
-    // Tìm tài liệu CỦA USER HIỆN TẠI dựa vào từ khóa
-    const document = await prisma.document.findFirst({
-      where: {
-        uploadedBy: userId, // BẢO MẬT: CHỈ TÀI LIỆU CỦA USER NÀY
-        OR: [
-          { title: { contains: keyword } },
-          { subject: { contains: keyword } }, // subject là String thường
-          { fileName: { contains: keyword } }, // tìm theo tên file
-          { category: { name: { contains: keyword } } }, // category là relation
-        ]
-      },
-      orderBy: { createdAt: 'desc' }
-    });
+const extractText = async (filePath, mimeType) => {
+  if (!fs.existsSync(filePath)) {
+    throw new Error('File không tồn tại');
+  }
 
-    if (!document) {
-      assistantReply = `Hệ thống không tìm thấy tài liệu nào của bạn liên quan đến từ khóa "${keyword}". Vui lòng đảm bảo bạn đã tải tài liệu này lên hệ thống.`;
-    } else {
-      try {
-        const absolutePath = storageService.getDownloadUrl(document.fileUrl);
-        const textContent = await documentParser.parseDocumentText(absolutePath);
-        
-        // Cắt bớt text nếu quá dài (Ollama context window)
-        const truncatedText = textContent.length > 5000 ? textContent.substring(0, 5000) + '...' : textContent;
-        
-        const systemPrompt = `Bạn là trợ lý học tập thông minh của hệ thống AI Study Hub. Dưới đây là nội dung tài liệu có tên "${document.title}".
-Dựa VÀO NỘI DUNG TÀI LIỆU NÀY, hãy trả lời câu hỏi của người dùng bằng Tiếng Việt một cách rõ ràng, dễ hiểu và đầy đủ. Nếu câu hỏi không liên quan đến tài liệu, hãy nói rõ là không tìm thấy thông tin trong tài liệu.
-Nội dung tài liệu:
-"""
-${truncatedText}
-"""`;
-        
-        assistantReply = await callOllama(systemPrompt, cleanMessage);
-      } catch (err) {
-        console.error('Lỗi RAG:', err);
-        assistantReply = 'Xin lỗi, tôi không thể đọc nội dung tài liệu này (có thể file lỗi hoặc định dạng không hỗ trợ).';
-      }
+  // PDF
+  if (mimeType === 'application/pdf' || filePath.endsWith('.pdf')) {
+    const buf = await fs.promises.readFile(filePath);
+    const data = await pdfParse(buf);
+    return data.text;
+  }
+
+  // Word (DOCX)
+  if (mimeType.includes('word') || filePath.endsWith('.docx')) {
+    const result = await mammoth.extractRawText({ path: filePath });
+    return result.value;
+  }
+
+  // Ảnh (OCR qua tesseract)
+  if (mimeType.startsWith('image/')) {
+    const { data: { text } } = await tesseract.recognize(filePath, 'vie+eng');
+    return text;
+  }
+
+  // Text thuần
+  if (mimeType.startsWith('text/') || filePath.endsWith('.txt')) {
+    return await fs.promises.readFile(filePath, 'utf-8');
+  }
+
+  // Thử đọc như file văn bản nếu không bắt được mime-type hợp lệ
+  try {
+    const buf = await fs.promises.readFile(filePath);
+
+    // Kiểm tra Magic Bytes
+    if (buf.length > 4 && buf.toString('utf8', 0, 4) === '%PDF') {
+      const data = await pdfParse(buf);
+      return data.text;
     }
+    if (buf.length > 4 && buf.toString('hex', 0, 4) === '504b0304') {
+      try {
+        const result = await mammoth.extractRawText({ path: filePath });
+        if (result.value) return result.value;
+      } catch (e) {}
+    }
+
+    // Cuối cùng thử đọc thuần Tex
+    return buf.toString('utf-8');
+  } catch (err) {
+    console.warn("Fallback extract error:", err);
+    return "";
+  }
+};
+
+const ingestFile = async (filePath, mimeType, metadata) => {
+  try {
+    const rawText = await extractText(filePath, mimeType);
+    if (!rawText || rawText.trim() === '') {
+      console.log('No text extracted, skipping AI ingestion for', metadata.fileName);
+      return;
+    }
+
+    const splitter = new RecursiveCharacterTextSplitter({
+      chunkSize: 800,
+      chunkOverlap: 100,
+    });
+    const chunks = await splitter.splitText(rawText);
+
+    const db = await lancedb.connect(VECTOR_DB_PATH);
+    const records = [];
+
+    for (const [i, chunk] of chunks.entries()) {
+      const vector = await embedText(chunk);
+      records.push({
+        vector,
+        text: chunk,
+        source_file: metadata.fileName,
+        subject: metadata.subject || 'Chưa phân loại',
+        document_id: metadata.documentId || 'unknown',
+        chunk_index: i,
+      });
+    }
+
+    const tableNames = await db.tableNames();
+    const tableExists = tableNames.includes('study_docs');
+
+    if (tableExists) {
+      const table = await db.openTable('study_docs');
+      await table.add(records);
+    } else {
+      await db.createTable('study_docs', records);
+    }
+    console.log(`Ingested ${chunks.length} chunks for ${metadata.fileName} into LanceDB`);
+  } catch (err) {
+    console.error(`AI Ingestion failed for ${metadata.fileName}:`, err.message);
+  }
+};
+
+const askQuestion = async (question, mode = 'qa', userId = null) => {
+  const db = await lancedb.connect(VECTOR_DB_PATH);
+  const tableNames = await db.tableNames();
+
+  if (!tableNames.includes('study_docs')) {
+    return { answer: "Hệ thống chưa có tài liệu nào để trả lời. Vui lòng tải lên tài liệu học tập trước.", sources: [] };
   }
 
-  const assistantMessage = await prisma.chatMessage.create({
-    data: {
-      sessionId: session.id,
-      role: 'assistant',
-      content: assistantReply,
-    },
+  const table = await db.openTable('study_docs');
+  const qVector = await embedText(question);
+
+  // Search for top 5 relevant chunks
+  const results = await table.search(qVector).limit(5).execute();
+
+  const context = results
+    .map(r => `[Tài liệu: ${r.source_file} | Môn: ${r.subject}]\n${r.text}`)
+    .join('\n\n---\n\n');
+
+  const systemPrompts = {
+    qa: 'Trả lời trực tiếp câu hỏi dựa trên context, trích nguồn [Tài liệu: ...].',
+    summary: 'Tóm tắt nội dung chính trong context một cách logic và dễ hiểu, không thêm ý ngoài.',
+    quiz: 'Tạo 5 câu hỏi trắc nghiệm ôn tập kèm đáp án dựa trên context, đa dạng độ khó.',
+  };
+
+  const modelName = await getModelForUser(userId);
+
+  const response = await ollama.chat({
+    model: modelName,
+    messages: [
+      {
+        role: 'system',
+        content: `Bạn là trợ lý AI học tập. Dựa vào những thông tin được cung cấp trong CONTEXT dưới đây, hãy trả lời câu hỏi của người dùng. Nếu CONTEXT không có đủ thông tin, hãy nói "Tôi không tìm thấy thông tin này trong tài liệu hiện tại." Tuyệt đối không bịa đặt thông tin.\n\nYêu cầu: ${systemPrompts[mode] || systemPrompts.qa}`,
+      },
+      {
+        role: 'user',
+        content: `CONTEXT:\n${context}\n\nCÂU HỎI:\n${question}`,
+      },
+    ],
   });
 
-  const updatedSession = await prisma.chatSession.update({
-    where: { id: session.id },
-    data: {
-      updatedAt: new Date(),
-      title: session.title || buildTitle(cleanMessage),
-    },
-  });
+  // Filter unique sources
+  const uniqueSources = [...new Set(results.map(r => r.source_file))];
 
   return {
-    session: updatedSession,
-    messages: [userMessage, assistantMessage],
-    reply: assistantMessage.content,
+    answer: response.message.content,
+    sources: uniqueSources,
+    modelUsed: modelName
   };
 };
 
-const deleteChatSession = async (userId, sessionId) => {
-  await ensureOwnedSession(userId, sessionId);
-  await prisma.chatSession.delete({ where: { id: sessionId } });
-  return true;
-};
-
 module.exports = {
-  createChatSession,
-  getUserChatSessions,
-  getSessionMessages,
-  chat,
-  deleteChatSession,
+  embedText,
+  extractText,
+  ingestFile,
+  askQuestion
 };

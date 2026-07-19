@@ -12,6 +12,7 @@ model User {
   email               String        @unique
   password            String
   fullName            String
+  phoneNumber         String?
   avatarUrl           String?
   role                String        @default("USER") // GUEST, USER, ADMIN
   isVerified          Boolean       @default(false)
@@ -21,8 +22,13 @@ model User {
   resetPasswordExpire DateTime?
   isLocked            Boolean       @default(false)
   lockedUntil         DateTime?
-  usedStorage         Float         @default(0) // Dung lượng đã dùng (Bytes)
-  storageLimit        Float         @default(5368709120) // Giới hạn dung lượng (Bytes) - mặc định 5GB
+  usedStorage         Float         @default(0)
+  storageLimit        Float         @default(5368709120)
+  plan                String        @default("BASIC")
+  aiQuestionsUsed     Int           @default(0)
+  aiQuestionsLimit    Int           @default(20)
+  planExpiresAt       DateTime?
+  deletedAt           DateTime?
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
   documents           Document[]
@@ -30,16 +36,64 @@ model User {
   subjects            Subject[]
   ChatSession         ChatSession[]
   transactions        Transaction[]
+  invoices            Invoice[]
 
   @@map("users")
 }
 
+model SubscriptionPlan {
+  id               String    @id @default(uuid())
+  code             String    @unique
+  name             String
+  price            Float     @default(0)
+  currency         String    @default("VND")
+  storageLimit     Float
+  aiQuestionsLimit Int
+  aiModel          String    @default("llama3")
+  durationDays     Int       @default(30)
+  features         String    @db.NVarChar(Max)
+  description      String?
+  isActive         Boolean   @default(true)
+  deletedAt        DateTime?
+  sortOrder        Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  invoices     Invoice[]
+  transactions Transaction[]
+
+  @@map("subscription_plans")
+}
+
+model Invoice {
+  id            String    @id @default(uuid())
+  invoiceCode   String    @unique
+  userId        String
+  planId        String
+  amount        Float
+  status        String    @default("PENDING")
+  paymentMethod String?
+  txnRef        String?   @unique
+  description   String?
+  paidAt        DateTime?
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan         SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  transactions Transaction[]
+
+  @@map("invoices")
+}
+
 model Category {
-  id          String   @id @default(uuid())
-  name        String   @unique
+  id          String    @id @default(uuid())
+  name        String    @unique
   description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   documents Document[]
 
@@ -51,6 +105,7 @@ model Folder {
   name      String
   userId    String
   parentId  String?
+  deletedAt DateTime?
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -58,18 +113,19 @@ model Folder {
   children  Folder[]   @relation("FolderToFolder")
   documents Document[]
 
-  @@unique([name, parentId, userId]) // Không cho phép trùng tên folder trong cùng 1 parent của cùng 1 user
+  @@unique([name, parentId, userId])
   @@map("folders")
 }
 
 model Subject {
-  id          String   @id @default(uuid())
-  name        String   @unique
-  code        String?  @unique
+  id          String    @id @default(uuid())
+  name        String    @unique
+  code        String?   @unique
   description String?
   createdBy   String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   creator   User?      @relation(fields: [createdBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
   documents Document[]
@@ -93,11 +149,12 @@ model Document {
   uploadedBy     String
   categoryId     String?
   folderId       String?
-  isPublic       Boolean  @default(true)
-  downloadCount  Int      @default(0)
-  currentVersion Int      @default(1)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  isPublic       Boolean   @default(true)
+  downloadCount  Int       @default(0)
+  currentVersion Int       @default(1)
+  deletedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   user       User              @relation(fields: [uploadedBy], references: [id], onDelete: Cascade)
   category   Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
@@ -120,7 +177,8 @@ model DocumentVersion {
   mimeType String
 
   uploadedBy String
-  createdAt  DateTime @default(now())
+  deletedAt  DateTime?
+  createdAt  DateTime  @default(now())
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
@@ -128,11 +186,12 @@ model DocumentVersion {
 }
 
 model ChatSession {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   userId    String
   title     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages ChatMessage[]
@@ -141,11 +200,12 @@ model ChatSession {
 }
 
 model ChatMessage {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   sessionId String
-  role      String // user | assistant
-  content   String   @db.NVarChar(Max)
-  createdAt DateTime @default(now())
+  role      String
+  content   String    @db.NVarChar(Max)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
 
   session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
@@ -153,22 +213,22 @@ model ChatMessage {
 }
 
 model Transaction {
-  id                    String    @id @default(uuid())
-  userId                String
-  amount                Float
-  status                String    @default("PENDING") // "SUCCESS", "FAILED", "PENDING"
-  paymentMethod         String    // "VNPAY", "MOMO", "PAYOS"
-  orderCode             String
-  providerTransactionId String?
-  description           String?
-  paidAt                 DateTime?
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
+  id            String    @id @default(uuid())
+  userId        String
+  invoiceId     String?
+  planId        String?
+  amount        Float
+  status        String
+  paymentMethod String
+  txnRef        String?
+  description   String?
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  invoice Invoice?          @relation(fields: [invoiceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  plan    SubscriptionPlan? @relation(fields: [planId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  @@unique([paymentMethod, orderCode])
-  @@index([userId, createdAt])
   @@map("transactions")
 }
-

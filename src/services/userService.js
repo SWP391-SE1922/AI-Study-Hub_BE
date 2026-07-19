@@ -30,20 +30,31 @@ const getAllUsers = async (queryParams) => {
       id: true,
       email: true,
       fullName: true,
+      phoneNumber: true,
       avatarUrl: true,
       role: true,
       isVerified: true,
       usedStorage: true,
       storageLimit: true,
+      plan: true,
+      isLocked: true,
+      lockedUntil: true,
+      deletedAt: true,
       createdAt: true,
       updatedAt: true,
     },
-    orderBy: { createdAt: 'desc' },
+    orderBy: [{ deletedAt: 'asc' }, { createdAt: 'desc' }],
   });
+
+  const { restoreUniqueValue } = require('../utils/softDelete');
+  const normalizedUsers = users.map((u) => ({
+    ...u,
+    email: u.deletedAt ? restoreUniqueValue(u.email) : u.email,
+  }));
 
   const pagination = getPaginationMetadata(total, page, limit);
 
-  return { users, pagination };
+  return { users: normalizedUsers, pagination };
 };
 
 /**
@@ -56,6 +67,7 @@ const getUserById = async (id) => {
       id: true,
       email: true,
       fullName: true,
+      phoneNumber: true,
       avatarUrl: true,
       role: true,
       isVerified: true,
@@ -80,6 +92,7 @@ const getUserById = async (id) => {
         id: true,
         email: true,
         fullName: true,
+        phoneNumber: true,
         avatarUrl: true,
         role: true,
         isVerified: true,
@@ -134,10 +147,15 @@ const deleteUser = async (id, currentUserId) => {
     throw error;
   }
 
-  const user = await getUserById(id);
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user || user.deletedAt) {
+    const error = new Error('Không tìm thấy người dùng.');
+    error.statusCode = 404;
+    throw error;
+  }
 
   if (user.role === 'ADMIN') {
-    const adminCount = await prisma.user.count({ where: { role: 'ADMIN' } });
+    const adminCount = await prisma.user.count({ where: { role: 'ADMIN', deletedAt: null } });
     if (adminCount <= 1) {
       const error = new Error('Không thể xóa admin cuối cùng của hệ thống.');
       error.statusCode = 400;
@@ -145,9 +163,58 @@ const deleteUser = async (id, currentUserId) => {
     }
   }
 
-  // Xóa tài khoản (các Document liên kết sẽ tự động bị xóa qua onDelete: Cascade)
-  await prisma.user.delete({ where: { id } });
+  const { markUniqueDeleted, softDeleteData } = require('../utils/softDelete');
+  await prisma.user.update({
+    where: { id },
+    data: softDeleteData({
+      email: markUniqueDeleted(user.email, id),
+      isLocked: true,
+    }),
+  });
   return true;
+};
+
+const restoreUser = async (id) => {
+  const { restoreUniqueValue } = require('../utils/softDelete');
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) {
+    const error = new Error('Không tìm thấy người dùng.');
+    error.statusCode = 404;
+    throw error;
+  }
+  if (!user.deletedAt) {
+    const error = new Error('Tài khoản này chưa bị xóa.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const email = restoreUniqueValue(user.email);
+  const clash = await prisma.user.findFirst({
+    where: { email, deletedAt: null, NOT: { id } },
+  });
+  if (clash) {
+    const error = new Error('Email gốc đã được tài khoản khác sử dụng. Không thể khôi phục.');
+    error.statusCode = 409;
+    throw error;
+  }
+
+  return prisma.user.update({
+    where: { id },
+    data: {
+      deletedAt: null,
+      email,
+      isLocked: false,
+      lockedUntil: null,
+    },
+    select: {
+      id: true,
+      email: true,
+      fullName: true,
+      role: true,
+      deletedAt: true,
+      isLocked: true,
+    },
+  });
 };
 
 /**
@@ -205,18 +272,20 @@ const lockUser = async (id, duration) => {
  * Cập nhật thông tin cá nhân của User hiện tại
  */
 const updateProfile = async (userId, data) => {
-  const { fullName, avatarUrl } = data;
+  const { fullName, avatarUrl, phoneNumber } = data;
 
   const updatedUser = await prisma.user.update({
     where: { id: userId },
     data: {
       ...(fullName && { fullName }),
       ...(avatarUrl !== undefined && { avatarUrl }),
+      ...(phoneNumber !== undefined && { phoneNumber }),
     },
     select: {
       id: true,
       email: true,
       fullName: true,
+      phoneNumber: true,
       avatarUrl: true,
       role: true,
       isVerified: true,
@@ -230,11 +299,18 @@ const updateProfile = async (userId, data) => {
   return updatedUser;
 };
 
+const updateUserPlan = async (id, plan) => {
+  const planService = require('./planService');
+  return planService.applyPlanToUser(id, plan);
+};
+
 module.exports = {
   getAllUsers,
   getUserById,
   updateUserRole,
   deleteUser,
+  restoreUser,
   lockUser,
   updateProfile,
+  updateUserPlan,
 };
